@@ -1,0 +1,6 @@
+#!/bin/bash
+# bb-post <角色> <内容>  — 发一条留言，自动加时间戳和发言人
+# 角色: "上级" | "worker" | 自定义名字
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/bb.py" bb-post "$@"

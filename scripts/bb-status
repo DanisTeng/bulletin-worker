@@ -1,0 +1,10 @@
+#!/bin/bash
+# bb-status [get | set <field> <value> | flag <value> | flag-clear]
+#
+#   get         — 读取 status.json
+#   set <f> <v> — 设置 status.json 字段
+#   flag <v>    — 设置 flag（上级专用）
+#   flag-clear  — 清除 flag
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/bb.py" bb-status "$@"

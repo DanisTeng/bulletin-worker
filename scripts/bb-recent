@@ -1,0 +1,5 @@
+#!/bin/bash
+# bb-recent [行数]  — 看最近的留言，默认 20 行
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/bb.py" bb-recent "$@"

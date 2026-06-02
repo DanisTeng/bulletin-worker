@@ -1,0 +1,8 @@
+{
+  "root_dir": "/james_pm/bulletin-worker",
+  "board_path": "/james_pm/bulletin-worker/tmp",
+  "scripts_dir": "/james_pm/bulletin-worker/scripts",
+  "superior_name": "Danis",
+  "worker_name": "James",
+  "max_recent_lines": 20
+}
