@@ -193,18 +193,18 @@ def status_cli():
             sys.exit(1)
         field = args[1]
         value = " ".join(args[2:])
-        result = status_set(field, value)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        status_set(field, value)
+        print(f'field "{field}" set to "{value}"')
     elif cmd == "flag":
         if len(args) < 2:
             print("用法: bb-status flag <内容>", file=sys.stderr)
             sys.exit(1)
         value = " ".join(args[1:])
-        result = flag_set(value)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        flag_set(value)
+        print(f'flag set to "{value}"')
     elif cmd == "flag-clear":
-        result = flag_clear()
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        flag_clear()
+        print("flag cleared")
     else:
         print(f"未知子命令: {cmd}", file=sys.stderr)
         sys.exit(1)
