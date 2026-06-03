@@ -1,6 +1,17 @@
 #!/bin/bash
 # bb-post <角色> <内容>  — 发一条留言，自动加时间戳和发言人
 # 角色: "上级" | "worker" | 自定义名字
+# 支持 \n 转义为真实换行
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec python3 "$SCRIPT_DIR/bb.py" bb-post "$@"
+
+if [ $# -lt 2 ]; then
+    echo "用法: bb-post <角色> <内容>" >&2
+    exit 1
+fi
+
+role="$1"
+shift
+# 用 printf 将 \n 转为真实换行符，再传给 Python
+content="$(printf '%b' "$*")"
+exec python3 "$SCRIPT_DIR/bb.py" bb-post "$role" "$content"

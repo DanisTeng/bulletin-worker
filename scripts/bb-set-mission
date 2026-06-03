@@ -1,0 +1,6 @@
+#!/bin/bash
+# 设置任务描述（bb-status set mission 的包装）
+# 用法: bb-set-mission "任务描述"
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb-status" set mission "$@"

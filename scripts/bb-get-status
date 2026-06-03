@@ -1,0 +1,4 @@
+#!/bin/bash
+# 获取当前状态（IDLE / ACTIVE / BUSY）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb-status" get

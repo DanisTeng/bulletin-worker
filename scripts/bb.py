@@ -35,6 +35,7 @@ def post(role, content, config_path=None):
     """
     发一条留言。role = "上级" 或 "worker" 或具体名字。
     自动加时间戳和发言人，追加到今日文件。
+    支持多行内容：续行自动对齐到时间戳位置。
     """
     cfg = load_config(config_path)
     board_path = cfg["board_path"]
@@ -49,34 +50,39 @@ def post(role, content, config_path=None):
         speaker = role  # 允许自定义
 
     ts = f"{datetime.now():%Y-%m-%d %H:%M}"
-    line = f"{ts} [{speaker}] {content}\n"
+    lines = content.split("\n")
+    prefix = f"{ts} [{speaker}] "
+    indent = " " * len(prefix)
 
     today = _today_path(board_path)
     with open(today, "a") as f:
-        f.write(line)
+        for i, line in enumerate(lines):
+            if i == 0:
+                f.write(f"{prefix}{line}\n")
+            else:
+                f.write(f"{indent}{line}\n")
 
-    return line.strip()
+    return prefix + lines[0]
 
 
 def recent(lines=20, config_path=None):
-    """读最近的留言，默认 20 行"""
+    """读最近的留言，跨越多个旧文件凑够 N 行"""
     cfg = load_config(config_path)
     board_path = Path(cfg["board_path"])
     today = _today_path(board_path)
 
-    if today.exists():
-        result = _tail(today, lines)
-        if result:
-            return result
-
-    # 今天没消息，找最近一天的
+    all_lines = []
     dates = sorted(board_path.glob("????-??-??.md"), reverse=True)
-    for f in dates:
-        result = _tail(f, lines)
-        if result:
-            return result
 
-    return []
+    for f in dates:
+        with open(f) as fh:
+            entries = [l.rstrip("\n") for l in fh if l.rstrip("\n")]
+        # 跳过纯标题行（# YYYY-MM-DD），其余按日期排序倒序取
+        content = [l for l in entries if not l.startswith("# ")]
+        all_lines = content + all_lines
+
+    # 取末尾 N 行（最近的在后头）
+    return all_lines[-lines:]
 
 
 def history(start_date, end_date=None, config_path=None):
@@ -186,25 +192,25 @@ def status_cli():
     cmd = args[0]
     if cmd == "get":
         data = status_get()
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        print(data.get("status", "IDLE"))
     elif cmd == "set":
         if len(args) < 3:
             print("用法: bb-status set <field> <value>", file=sys.stderr)
             sys.exit(1)
         field = args[1]
         value = " ".join(args[2:])
-        result = status_set(field, value)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        status_set(field, value)
+        print(f'field "{field}" set to "{value}"')
     elif cmd == "flag":
         if len(args) < 2:
             print("用法: bb-status flag <内容>", file=sys.stderr)
             sys.exit(1)
         value = " ".join(args[1:])
-        result = flag_set(value)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        flag_set(value)
+        print(f'flag set to "{value}"')
     elif cmd == "flag-clear":
-        result = flag_clear()
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        flag_clear()
+        print("flag cleared")
     else:
         print(f"未知子命令: {cmd}", file=sys.stderr)
         sys.exit(1)

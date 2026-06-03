@@ -1,0 +1,5 @@
+#!/bin/bash
+# 以 worker 身份发留言（角色从 config.json 自动读取）
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb-post" "worker" "$@"
