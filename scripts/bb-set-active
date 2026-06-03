@@ -1,0 +1,4 @@
+#!/bin/bash
+# 设置状态为 ACTIVE（替换 bb-wake 功能）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb-status" set status "ACTIVE"

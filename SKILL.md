@@ -1,5 +1,8 @@
 # Bulletin Worker — Worker 指南
 
+
+
+
 > v3：isolated cron session + think.log + 三层纠偏
 
 ## 状态机
@@ -91,13 +94,12 @@ Step 6: 还有 49 章 → status=ACTIVE
 ### 第 0 步：IDLE 检查
 
 ```bash
-# 读当前状态
-scripts/bb-status get
+scripts/bb-get-status
 ```
 
 **判断逻辑：**
-- `status == "IDLE"` → 无事可做，写 think.log 后直接退出本轮 cron
-- `status == "ACTIVE"` 或 `status == "BUSY"` → 设 `status = "BUSY"`，继续第 1 步
+- 返回 `IDLE` → 无事可做，写 think.log 后直接退出本轮 cron
+- 返回 `ACTIVE` 或 `BUSY` → `scripts/bb-set-busy`，继续第 1 步
 
 **写 think.log：**
 ```
@@ -108,11 +110,11 @@ Step 0: status=<当前值> → <退出/继续>
 
 ```bash
 scripts/bb-recent
-scripts/bb-status get
+scripts/bb-get-status
 ```
 
 **判断逻辑：**
-- `mission` 不存在或为空 → 无任务 → 写 think.log → 回话给上级 → 设 IDLE → 退出
+- `mission` 不存在或为空 → 无任务 → 写 think.log → 回话给上级 → `scripts/bb-set-idle` → 退出
 - `mission` 存在且有未完成工作 → 写 think.log → 继续第 2 步
 
 **写 think.log：**
@@ -123,7 +125,7 @@ Step 1: mission.description="<描述>" → <无任务/有任务>
 ### 第 2 步：方向明确性检查
 
 **判断逻辑：**
-- `mission.description` 不够清晰无法执行 → 写 think.log（困惑原因）→ 留言困惑 → 回话 → 设 IDLE → 退出
+- `mission.description` 不够清晰无法执行 → 写 think.log（困惑原因）→ 留言困惑 → 回话 → `scripts/bb-set-idle` → 退出
 - 方向明确 → 写 think.log（确认依据）→ 继续第 3 步
 
 **写 think.log：**
@@ -137,7 +139,7 @@ Step 2: 方向<不明确/明确> — <依据>
 - `steps` 非空 → 跳过，继续第 4 步
 - `steps` 为空 → 拆分为适配一次 cron 周期的子步骤
   - 写 think.log（拆分结果 + 理由）
-  - 写入 status.json 更新 `steps` 和 `current_step_index`
+  - 写入 status.json 更新 `steps` 和 `current_step_index`（用 `scripts/bb-status set`）
   - 留言告知拆分结果
   - 继续第 4 步
 
@@ -168,7 +170,7 @@ Step 4: 执行 <步骤描述> → <完成/失败摘要>
   - 写 think.log: `Step 5: 超过 7 轮，阻塞:<原因>`
   - 留言告知领导
   - 回话
-  - 设 IDLE → 退出
+  - `scripts/bb-set-idle` → 退出
 - `failed_attempts < 7` → 未超限，继续
 
 **写 think.log：**
@@ -179,8 +181,8 @@ Step 5: failed_attempts=<值> → <未超限/超限阻塞>
 ### 第 6 步：退出 & 回话
 
 **判断逻辑：**
-- 还有剩余步骤 → 写 think.log → 回话汇报进展 → 设 ACTIVE → 退出
-- 全部完成 → 写 think.log → 回话汇报完成 → 设 IDLE → 退出
+- 还有剩余步骤 → 写 think.log → 回话汇报进展 → `scripts/bb-set-active` → 退出
+- 全部完成 → 写 think.log → 回话汇报完成 → `scripts/bb-set-idle` → 退出
 
 **写 think.log：**
 ```

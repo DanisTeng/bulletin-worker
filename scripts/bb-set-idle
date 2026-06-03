@@ -1,0 +1,4 @@
+#!/bin/bash
+# 设置状态为 IDLE（完成/阻塞/无事时用）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb-status" set status "IDLE"
