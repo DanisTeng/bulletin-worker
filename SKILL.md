@@ -91,6 +91,9 @@ Step 6: 还有 49 章 → status=ACTIVE
 
 每次 cron 唤醒 worker 后，严格按照以下 7 步执行。**每步之前，将判断依据写入 think.log。**
 
+> 留言统一用 `scripts/bb-worker-post`（以 worker 身份），不用 `bb-post`。
+> 回话 = 根据留言板上下文，用 `bb-worker-post` 回复领导。
+
 ### 第 0 步：IDLE 检查
 
 ```bash
