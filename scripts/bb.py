@@ -35,6 +35,7 @@ def post(role, content, config_path=None):
     """
     发一条留言。role = "上级" 或 "worker" 或具体名字。
     自动加时间戳和发言人，追加到今日文件。
+    支持多行内容：续行自动对齐到时间戳位置。
     """
     cfg = load_config(config_path)
     board_path = cfg["board_path"]
@@ -49,13 +50,19 @@ def post(role, content, config_path=None):
         speaker = role  # 允许自定义
 
     ts = f"{datetime.now():%Y-%m-%d %H:%M}"
-    line = f"{ts} [{speaker}] {content}\n"
+    lines = content.split("\n")
+    prefix = f"{ts} [{speaker}] "
+    indent = " " * len(prefix)
 
     today = _today_path(board_path)
     with open(today, "a") as f:
-        f.write(line)
+        for i, line in enumerate(lines):
+            if i == 0:
+                f.write(f"{prefix}{line}\n")
+            else:
+                f.write(f"{indent}{line}\n")
 
-    return line.strip()
+    return prefix + lines[0]
 
 
 def recent(lines=20, config_path=None):
