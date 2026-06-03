@@ -1,10 +1,10 @@
-# Bulletin Worker Skill
+# Bulletin Worker — Worker 指南
 
-Bulletin Worker 是一个极简 cron worker 模式。Worker 每次被 cron 唤醒时执行以下流程。
+> v3：isolated cron session + think.log + 三层纠偏
 
-## 配置源
+## 📋 配置
 
-所有配置在 `config.json` 中统一管理：
+_config.json 位于根目录，当前值：_
 
 ```json
 {
@@ -13,102 +13,164 @@ Bulletin Worker 是一个极简 cron worker 模式。Worker 每次被 cron 唤�
   "scripts_dir": "/james_pm/bulletin-worker/scripts",
   "superior_name": "Danis",
   "worker_name": "James",
-  "max_recent_lines": 20
+  "max_recent_lines": 20,
+  "max_consecutive_failures": 7
 }
 ```
 
-## 环境变量
+所有路径使用配置值，**不要硬编码**。
 
-- `BB_CONFIG` — 覆盖 config.json 路径，默认 `{root_dir}/config.json`
+## 🔧 API 工具
 
-## Prompt 生成
-
-不用 `prompt.txt`。用 `scripts/build_prompt.py` 动态生成 prompt，所有路径和名字从 config.json 读取：
-
-```bash
-python3 /path/to/scripts/build_prompt.py
-```
-
-输出内容可直接作为 cron agentTurn 的 message 参数。
-
-## API 脚本
-
-`scripts/` 下所有脚本使用绝对路径调用：
+所有工具位于 `scripts/` 目录，使用绝对路径调用：
 
 ```bash
 # 发留言
-scripts/bb-post "上级" "消息内容"
-scripts/bb-post "worker" "消息内容"
+/james_pm/bulletin-worker/scripts/bb-post "上级" "消息内容"
+/james_pm/bulletin-worker/scripts/bb-post "worker" "消息内容"
 
-# 看最近留言
-scripts/bb-recent [行数=20]
+# 看最近留言（默认 20 行）
+/james_pm/bulletin-worker/scripts/bb-recent [行数]
 
-# 查历史
-scripts/bb-history <YYYY-MM-DD> [YYYY-MM-DD]
+# 查历史留言
+/james_pm/bulletin-worker/scripts/bb-history <YYYY-MM-DD> [YYYY-MM-DD]
 
-# 读写 status.json
-scripts/bb-status get
-scripts/bb-status set <field> <value>
+# 读 status.json
+/james_pm/bulletin-worker/scripts/bb-status get
 
-# 设置 flag（上级专用）
-scripts/bb-status flag <内容>
-scripts/bb-status flag-clear
+# 写 status.json 字段
+/james_pm/bulletin-worker/scripts/bb-status set <字段名> <值>
 
-# 生成 cron prompt（cron 集成用）
-python3 scripts/build_prompt.py
+# 唤醒上级（标记当前状态可用）
+/james_pm/bulletin-worker/scripts/bb-wake
 ```
 
-## Worker 执行流程
+## 📊 状态机
 
-每次 cron 唤醒，worker agent 按以下步骤：
+（待填充）
 
-### 1. 读 status
-- `scripts/bb-status get`
+## 📝 思考日志 think.log
 
-### 2. 检查 flag
-- flag 非空 → 消费它：读 flag 内容 → 清 flag → `set status mission_issued`
-- flag 空 → 直接看 status
+（待填充）
 
-### 3. 状态分发
+## ⚙️ 执行流程
 
-| status | 行为 |
-|--------|------|
-| idle + 无 flag | 没事做，直接结束 |
-| mission_issued | 发留言报告开始，`set status working` |
-| working | 继续干活，完成后 `set status done` |
-| blocked | 检查 blocker 是否解除 |
-| done | 等待确认，不做额外工作 |
+每次 cron 唤醒，严格按以下 7 步执行。**每步开始前，将判断依据写入 think.log。**
 
-### 4. 报告进展
-- 用 `scripts/bb-post "worker" <内容>` 记录进展
-- 完成后用 `scripts/bb-status set progress "完成"`
-
-## 用 `generate_reply` 集成
-
-实际 cron Job 的 message 内容由此生成：
-
-```text
-生成 Bulletin Worker 的 cron prompt，运行:
-  python3 /james_pm/bulletin-worker/scripts/build_prompt.py
-取输出作为 prompt，然后按 prompt 指示执行。
-```
-
-使用 `openclaw agent --session-id bulletin-worker-temp` 执行，用完即弃的临时 session。
-
-## 示例：翻译任务
+### 第 0 步：IDLE 检查
 
 ```bash
-# 上级设 flag
-scripts/bb-status flag "翻译 /docs/manual.md"
-
-# Cron session 1
-# worker 读 flag → mission_issued → working
-scripts/bb-post "worker" "开始翻译 /docs/manual.md"
-
-# Cron session 2
-scripts/bb-post "worker" "已完成 3/50 章"
-
-# 完成
-scripts/bb-status set status "done"
-scripts/bb-post "worker" "翻译全部完成，共 50 章"
+# 读当前状态
+/james_pm/bulletin-worker/scripts/bb-status get
 ```
+
+**判断逻辑：**
+- `status == "IDLE"` → 无事可做，写入 think.log 后直接退出本轮 cron
+- `status == "ACTIVE"` 或 `status == "BUSY"` → 设 `status = "BUSY"`，继续第 1 步
+
+**写 think.log：**
+```
+Step 0: status=<当前值> → <决策结果（退出/继续）>
+```
+
+### 第 1 步：检查是否有未完成任务
+
+```bash
+# 读留言板最近记录
+/james_pm/bulletin-worker/scripts/bb-recent
+
+# 读 status 看 mission 信息
+/james_pm/bulletin-worker/scripts/bb-status get
+```
+
+**判断逻辑：**
+- `status.mission` 不存在或为空 → 无任务 → 写 think.log → `bb-post` 回话给上级 → 设 `status = "IDLE"` → 退出
+- `status.mission` 存在且有未完成工作 → 写 think.log → 继续第 2 步
+
+**写 think.log：**
+```
+Step 1: mission.description="<描述>" → <有任务/无任务，决策>
+```
+
+### 第 2 步：方向明确性检查
+
+**判断逻辑：**
+- `mission.description` 不够清晰，无法执行 → 写 think.log（困惑原因）→ `bb-post` 留言困惑 → 回话 → 设 `status = "IDLE"` → 退出
+- 方向明确 → 写 think.log（确认依据）→ 继续第 3 步
+
+**写 think.log：**
+```
+Step 2: 方向<不明确/明确> — <依据>
+```
+
+### 第 3 步：任务拆分
+
+**判断逻辑：**
+- `mission.steps` 非空 → 跳过，继续第 4 步
+- `mission.steps` 为空 → 拆分为适配一次 cron 周期的子步骤
+  - 写 think.log（拆分结果 + 理由）
+  - 写入 `status.json` 更新 `steps` 和 `current_step_index`
+  - `bb-post` 留言告知拆分结果
+  - 继续第 4 步
+
+**写 think.log：**
+```
+Step 3: steps 空/非空 → <拆分结果>
+```
+
+### 第 4 步：执行子任务
+
+```bash
+# 确定本轮子步骤
+current_step_index = status.mission.current_step_index
+step_description = status.mission.steps[current_step_index]
+```
+
+**执行步骤：**
+1. 写 think.log 记录即将执行的步骤
+2. 执行子任务（读文件、翻译、查资料等）
+3. `bb-post` 更新进展
+4. 更新 `status.json`（`progress`、`current_step_index`、必要时更新 `failed_attempts`）
+5. 写 think.log 记录完成摘要
+
+**写 think.log：**
+```
+Step 4: 执行 <步骤描述> → <完成/失败摘要>
+```
+
+### 第 5 步：多轮失败检测
+
+**判断逻辑：**
+- `failed_attempts >= 7` → 超出上限，标记阻塞
+  - 写 think.log: `Step 5: 超过 7 轮，阻塞:<原因>`
+  - `bb-post` 留言告知领导
+  - 回话
+  - 设 `status = "IDLE"` → 退出
+- `failed_attempts < 7` → 未超限，继续
+
+**写 think.log：**
+```
+Step 5: failed_attempts=<值>，<未超限/超限阻塞> → 决策
+```
+
+### 第 6 步：本轮退出 && 回话
+
+**判断逻辑：**
+- 还有剩余步骤 → 写 think.log → 回话汇报进展 → 设 `status = "ACTIVE"` → 退出
+- 全部完成 → 写 think.log → 回话汇报完成 → 设 `status = "IDLE"` → 退出
+
+**写 think.log：**
+```
+Step 6: <还有 N 步/全部完成> → status=<ACTIVE/IDLE>
+----------------------------------------
+```
+
+每轮 think.log 以 `=== <时间戳> [cron-<short_hash>] ===` 开头，以 `----------------------------------------` 结尾。
+
+## 🔄 纠偏机制
+
+（待填充）
+
+## 🚨 异常处理
+
+（待填充）
