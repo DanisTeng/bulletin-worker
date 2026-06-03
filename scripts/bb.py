@@ -186,7 +186,7 @@ def status_cli():
     cmd = args[0]
     if cmd == "get":
         data = status_get()
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        print(data.get("status", "IDLE"))
     elif cmd == "set":
         if len(args) < 3:
             print("用法: bb-status set <field> <value>", file=sys.stderr)
