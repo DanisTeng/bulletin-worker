@@ -59,24 +59,23 @@ def post(role, content, config_path=None):
 
 
 def recent(lines=20, config_path=None):
-    """读最近的留言，默认 20 行"""
+    """读最近的留言，跨越多个旧文件凑够 N 行"""
     cfg = load_config(config_path)
     board_path = Path(cfg["board_path"])
     today = _today_path(board_path)
 
-    if today.exists():
-        result = _tail(today, lines)
-        if result:
-            return result
-
-    # 今天没消息，找最近一天的
+    all_lines = []
     dates = sorted(board_path.glob("????-??-??.md"), reverse=True)
-    for f in dates:
-        result = _tail(f, lines)
-        if result:
-            return result
 
-    return []
+    for f in dates:
+        with open(f) as fh:
+            entries = [l.rstrip("\n") for l in fh if l.rstrip("\n")]
+        # 跳过纯标题行（# YYYY-MM-DD），其余按日期排序倒序取
+        content = [l for l in entries if not l.startswith("# ")]
+        all_lines = content + all_lines
+
+    # 取末尾 N 行（最近的在后头）
+    return all_lines[-lines:]
 
 
 def history(start_date, end_date=None, config_path=None):
