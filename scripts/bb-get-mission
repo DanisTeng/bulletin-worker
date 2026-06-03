@@ -1,0 +1,19 @@
+#!/bin/bash
+# 获取当前任务描述
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 从 status.json 读 mission 字段
+python3 -c "
+import json, sys, os
+sys.path.insert(0, '$SCRIPT_DIR')
+from bb import status_get
+data = status_get()
+m = data.get('mission')
+if m:
+    if isinstance(m, dict):
+        print(m.get('description', json.dumps(m, ensure_ascii=False)))
+    else:
+        print(m)
+else:
+    print('(no mission)')
+"
