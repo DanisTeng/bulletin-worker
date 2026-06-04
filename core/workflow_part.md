@@ -11,10 +11,11 @@
 
 ```
 ./scripts/bb-set-busy
-./scripts/bb-recent
+./scripts/bb-recent $max_recent_lines
 ```
 
 获取留言板近期消息，判断是否有未完成的任务。
+(其中 bb-recent后的数字是近期消息的数量，可以根据需要调整)
 
 **情形 1：没有未完成的任务**
 
