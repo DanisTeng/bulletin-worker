@@ -1,8 +1,12 @@
 {
+  "superior_name": "Danis",
+  "worker_name": "James",
   "root_dir": "/james_pm/bulletin-worker",
   "board_path": "/james_pm/bulletin-worker/tmp",
   "scripts_dir": "/james_pm/bulletin-worker/scripts",
-  "superior_name": "Danis",
-  "worker_name": "James",
+  "identity_files": [
+    "/root/.openclaw/workspace/SOUL.md",
+    "/root/.openclaw/workspace/AGENTS.md"
+  ],
   "max_recent_lines": 20
 }
