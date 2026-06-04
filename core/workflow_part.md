@@ -46,7 +46,7 @@
 
 - 执行任务。
 - 使用 `./scripts/bb-worker-post` 在留言板上更新任务进度。
+- 运行 `./scripts/bb-set-active`。
 
 ## 最终步
-
-运行 `./scripts/bb-set-active`。
+结束
