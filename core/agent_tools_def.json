@@ -1,0 +1,52 @@
+[
+  {
+    "name": "bb-get-status",
+    "description": "获取当前状态（IDLE / ACTIVE / BUSY）",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\""
+  },
+  {
+    "name": "bb-set-active",
+    "description": "设置状态为 ACTIVE",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" ACTIVE"
+  },
+  {
+    "name": "bb-set-busy",
+    "description": "设置状态为 BUSY",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" BUSY"
+  },
+  {
+    "name": "bb-set-idle",
+    "description": "设置状态为 IDLE",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" IDLE"
+  },
+  {
+    "name": "bb-set-mission",
+    "description": "设置任务描述。用法: bb-set-mission <任务描述>",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" -f mission \"$@\""
+  },
+  {
+    "name": "bb-get-mission",
+    "description": "获取当前任务描述",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" -f mission"
+  },
+  {
+    "name": "bb-worker-post",
+    "description": "以 worker 身份发留言。用法: echo <内容> | bb-worker-post",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\""
+  },
+  {
+    "name": "bb-leader-post",
+    "description": "以领导身份发留言。用法: echo <内容> | bb-leader-post",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$SUPERIOR_NAME\""
+  },
+  {
+    "name": "bb-recent",
+    "description": "查看最近留言，默认 20 行。用法: bb-recent [行数]",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" recent \"$@\""
+  },
+  {
+    "name": "bb-history",
+    "description": "按日期查留言。用法: bb-history <YYYY-MM-DD> [YYYY-MM-DD]",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" history \"$@\""
+  }
+]

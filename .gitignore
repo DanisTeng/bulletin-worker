@@ -1,3 +1,8 @@
 # 运行时数据目录（留言板 + 状态文件），不提交 git
 tmp/
 output/
+
+# pyinstaller 构建产物
+agent_tools/dist/
+agent_tools/build/
+agent_tools/*.spec
