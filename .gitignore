@@ -6,3 +6,7 @@ output/
 agent_tools/dist/
 agent_tools/build/
 agent_tools/*.spec
+
+# Python 缓存
+__pycache__/
+*.pyc

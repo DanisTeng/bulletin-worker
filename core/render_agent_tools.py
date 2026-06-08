@@ -30,13 +30,27 @@ BUILD_DIR = os.path.join(ROOT_DIR, "tmp", "pyi-build")
 
 
 def load_config(path: str) -> dict:
-    with open(path, "r") as f:
-        return json.load(f)
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ 未找到 config 文件: {path}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"❌ config 格式错误: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def load_tools_def(path: str) -> list[dict]:
-    with open(path, "r") as f:
-        return json.load(f)
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"❌ 未找到工具定义文件: {path}", file=sys.stderr)
+        sys.exit(1)
+    except json.JSONDecodeError as e:
+        print(f"❌ 工具定义格式错误: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _validate_config(config: dict):
@@ -54,12 +68,14 @@ def build_placeholders(config: dict, tools_dir: str) -> dict[str, str]:
     """
     构建占位符 → 实际值的映射。
     $AGENT_TOOLS_DIR 指向 tools/ 自身，使工作区自包含。
+
+    注意：_validate_config 已保证 board_path / worker_name / superior_name / worker_workspace 非空。
     """
     return {
-        "$BOARD_DIR": config.get("board_path", ""),
-        "$WORKER_NAME": config.get("worker_name", ""),
-        "$SUPERIOR_NAME": config.get("superior_name", ""),
-        "$WORKSPACE_DIR": config.get("worker_workspace", ""),
+        "$BOARD_DIR": config["board_path"],
+        "$WORKER_NAME": config["worker_name"],
+        "$SUPERIOR_NAME": config["superior_name"],
+        "$WORKSPACE_DIR": config["worker_workspace"],
         "$AGENT_TOOLS_DIR": tools_dir,
     }
 
@@ -212,6 +228,8 @@ def render_sh_wrappers(
 
 def _verify_placeholders(wrappers: list[tuple[str, str]]):
     """检查 sh wrapper 是否有未替换的 $UPPER_CASE 占位符"""
+    # 匹配 \$UPPER_CASE_UNDERSCORE 模式的未替换占位符
+    # 不匹配 shell 原生变量如 $@ $* $?（不含大写字母或下划线开头）
     pattern = re.compile(r"\$[A-Z][A-Z_]+")
     all_ok = True
 
@@ -232,8 +250,12 @@ def _verify_placeholders(wrappers: list[tuple[str, str]]):
 
 
 def _cleanup_build(work_dir: str):
-    """清理 pyinstaller 构建产物，保留 ELF（供后续增量用）。"""
-    shutil.rmtree(os.path.join(work_dir, "build"), ignore_errors=True)
+    """清理 pyinstaller 构建中间产物（build/ + *.spec），保留 dist/ 下的 ELF 供后续增量用。"""
+    if not os.path.isdir(work_dir):
+        return
+    build_dir = os.path.join(work_dir, "build")
+    if os.path.isdir(build_dir):
+        shutil.rmtree(build_dir, ignore_errors=True)
     for f in os.listdir(work_dir):
         if f.endswith(".spec"):
             os.remove(os.path.join(work_dir, f))
