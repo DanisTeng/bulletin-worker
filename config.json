@@ -1,8 +1,8 @@
 {
   "superior_name": "Danis",
   "worker_name": "James",
-  "worker_workspace": "/james_pm/bulletin-worker/tmp/workspace",
-  "board_path": "/james_pm/bulletin-worker/tmp/board",
+  "worker_workspace": "/james_pm/bulletin_work_space",
+  "board_path": "/james_pm/bulletin_board",
   "identity_files": [
     "/root/.openclaw/workspace/SOUL.md",
     "/root/.openclaw/workspace/AGENTS.md"
