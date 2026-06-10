@@ -2,7 +2,7 @@
 
 ## 第一步：IDLE 检查
 
-运行 `./scripts/bb-status get`。
+运行 `./tools/bb-get-status`。
 如果结果是 `IDLE`，跳过以下所有步骤并退出。
 
 ## 第二步：状态激活 & 任务检查
@@ -10,8 +10,8 @@
 运行：
 
 ```
-./scripts/bb-set-busy
-./scripts/bb-recent $max_recent_lines
+./tools/bb-set-busy
+./tools/bb-recent $max_recent_lines
 ```
 
 获取留言板近期消息，判断是否有未完成的任务。
@@ -19,13 +19,13 @@
 
 **情形 1：没有未完成的任务**
 
-- 使用 `./scripts/bb-worker-post` 回复留言板内容。
-- 运行 `./scripts/bb-set-idle`。
+- 使用 `./tools/bb-worker-post` 回复留言板内容。
+- 运行 `./tools/bb-set-idle`。
 - 跳转至最终步。
 
 **情形 2：有未完成的任务**
 
-- 使用 `./scripts/bb-set-mission` 将发布时间最晚的任务描述完整记录（这就是当前任务）。
+- 使用 `./tools/bb-set-mission` 将发布时间最晚的任务描述完整记录（这就是当前任务）。
 - 跳转至第三步。
 
 ## 第三步：可行性判断 & 执行
@@ -38,15 +38,15 @@
 
 **情形 1：存在阻碍，任务不可执行**
 
-- 使用 `./scripts/bb-worker-post` 描述任务执行的障碍。
-- 运行 `./scripts/bb-set-idle`。
+- 使用 `./tools/bb-worker-post` 描述任务执行的障碍。
+- 运行 `./tools/bb-set-idle`。
 - 跳转至最终步。
 
 **情形 2：任务可执行**
 
 - 执行任务。
-- 使用 `./scripts/bb-worker-post` 在留言板上更新任务进度。
-- 运行 `./scripts/bb-set-active`。
+- 使用 `./tools/bb-worker-post` 在留言板上更新任务进度。
+- 运行 `./tools/bb-set-active`。
 
 ## 最终步
 结束
