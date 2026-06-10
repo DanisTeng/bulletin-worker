@@ -1,7 +1,7 @@
 # Bulletin Worker — 设计文档 v3
 
 > v3 定稿：方案 A（一次 isolated cron session 走完全部流程）
-> + 每步输出结构化思考日志（`think.log`）用于防偏和 debug。
+> 极简模式：无 think.log，无唤醒脚本，纯 cron 驱动。
 >
 > v2 见 `DESIGN-v2.md`（状态机与流程定型页），v1 见 `DESIGN.md`（已弃用）。
 
@@ -41,7 +41,7 @@ openclaw cron add \
 - 不绑定 session ID，不在 dashboard 留下垃圾 task 记录
 - 前一轮与后一轮之间**没有任何上下文延续**——所有状态靠 status.json + 留言板传递
 
-## 状态机（同 v2）
+## 状态机
 
 三态，由 worker 自身或上级写入 status.json：
 
@@ -54,18 +54,18 @@ openclaw cron add \
 ### 状态变更规则
 
 ```
-IDLE ──[上级 bb-wake]──→ ACTIVE
-                              │
-                   [cron 第0步：非 IDLE]
-                              │
-                              ▼
-                            BUSY
-                              │
-                   [cron 流程结束]
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-                   IDLE      IDLE     ACTIVE
-                 (无事/阻塞) (超时)  (还有工作)
+IDLE ──[上级 bb-set-active]──→ ACTIVE
+                                    │
+                         [cron 第0步：非 IDLE]
+                                    │
+                                    ▼
+                                  BUSY
+                                    │
+                         [cron 流程结束]
+                          ┌─────────┼─────────┐
+                          ▼         ▼         ▼
+                         IDLE      IDLE     ACTIVE
+                       (无事/阻塞) (超时)  (还有工作)
 ```
 
 ## 留言板结构
@@ -73,12 +73,11 @@ IDLE ──[上级 bb-wake]──→ ACTIVE
 ```
 board_path/
 ├── status.json           ← 状态文件
-├── think.log             ← 结构化思考日志（新增）
 ├── 2026-06-02.md         ← 留言记录
 └── ...
 ```
 
-### status.json（同 v2）
+### status.json
 
 ```json
 {
@@ -97,34 +96,6 @@ board_path/
 }
 ```
 
-### think.log — 结构化思考日志（新增）
-
-每轮 cron 执行时，agent 将自己对 0-6 步的思考过程按结构化格式输出到此文件。
-
-**目的：**
-1. **防偏** — 要求每步显式写出判断根据，促使 agent 更审慎
-2. **debug** — 出问题时回头看 think.log 能发现哪一步想歪了
-3. **复盘** — 领导可以翻日志回顾 worker 的决策链
-
-**格式（纯文本，每轮一条）：**
-
-```
-=== 2026-06-02 15:30 [cron-abc123] ===
-Step 0: status=ACTIVE → BUSY
-Step 1: mission.description="翻译 /docs/manual.md" → 有任务，继续
-Step 2: 方向明确（文件存在，内容清晰，需要翻译 50 章）→ 继续
-Step 3: steps 为空 → 拆分如下：["翻译第 1-5 章","翻译第 6-10 章",...]
-Step 4: 执行 steps[0]="翻译第 1-5 章"...已完成
-Step 5: failed_attempts=0 → 未超限
-Step 6: 还有 49 章 → status=ACTIVE
-----------------------------------------
-```
-
-- 每轮 cron 追加一条，不修改旧记录
-- 由 agent 通过 `echo/printf > think.log` 追加写入
-- 用 `=== 2026-06-02 15:30 [cron-{short_hash}] ===` 作为轮次标记
-- 不是做精确的结构化解析，而是让 agent **"写下来"** 这个行为本身产生审慎效果
-
 ### 留言记录格式
 
 ```
@@ -138,15 +109,14 @@ Step 6: 还有 49 章 → status=ACTIVE
 - 按日期分文件，每天一个
 - 只追加，不允许修改或删除历史
 
-## Cron 内流程（同 v2，增加思考日志要求）
+## Cron 内流程
 
-每次 cron 唤醒 worker 后，严格按照以下步骤执行。**每步之前，将判断依据写入 think.log。**
+每次 cron 唤醒 worker 后，严格按照以下步骤执行。
 
 ### 第 0 步：IDLE 检查
 
 ```
 读 status.json
-写 think.log: "Step 0: status=<值> → 决策"
 if status == "IDLE":
     直接退出本轮 cron
 if status == "ACTIVE" | "BUSY":
@@ -159,8 +129,8 @@ if status == "ACTIVE" | "BUSY":
 ```
 读留言板最近 N 条记录
 判断 status.mission 是否存在未完成任务：
-  无任务 → 写 think.log → 回话 → 设 IDLE → 退出
-  有任务 → 写 think.log → 继续第 2 步
+  无任务 → 回话 → 设 IDLE → 退出
+  有任务 → 继续第 2 步
 ```
 
 "回话"：根据留言板上下文回复领导（汇报/回答/告知无事）。
@@ -169,8 +139,8 @@ if status == "ACTIVE" | "BUSY":
 
 ```
 判断 mission.description 是否清晰可执行：
-  方向不明确 → 写 think.log（困惑原因）→ 留言困惑 → 回话 → IDLE → 退出
-  方向明确 → 写 think.log（确认依据）→ 继续第 3 步
+  方向不明确 → 留言困惑 → 回话 → IDLE → 退出
+  方向明确 → 继续第 3 步
 ```
 
 ### 第 3 步：任务拆分
@@ -179,7 +149,6 @@ if status == "ACTIVE" | "BUSY":
 if mission.steps 非空 → 跳过，继续第 4 步
 if mission.steps 为空：
     → 拆分为适配一次 cron 周期的子步骤
-    → 写 think.log（拆分结果 + 理由）
     → 写入 status.json
     → 留言板记录拆分结果
     → 继续第 4 步
@@ -189,12 +158,10 @@ if mission.steps 为空：
 
 ```
 确定本轮子步骤：steps[current_step_index]
-写 think.log: "Step 4: 执行 <步骤描述>"
 执行子步骤
 无论成败：
   - 留言板更新结果
   - 更新 status.json（progress / index / failed_attempts）
-  - 写 think.log: "Step 4 完成: <结果摘要>"
 继续第 5 步
 ```
 
@@ -202,30 +169,25 @@ if mission.steps 为空：
 
 ```
 if failed_attempts >= 7:
-    → 写 think.log: "Step 5: 超过 7 轮，阻塞:<原因>"
     → 留言告知领导
     → 回话
     → IDLE → 退出
 else:
-    写 think.log: "Step 5: failed_attempts=<值>，未超限"
     继续第 6 步
 ```
 
 ### 第 6 步：本轮退出 & 总结合理
 
 ```
-还有剩余步骤？→ 写 think.log → 回话 → ACTIVE
-全部完成？→ 写 think.log → 回话 → IDLE
+还有剩余步骤？→ 回话 → ACTIVE
+全部完成？→ 回话 → IDLE
 ```
 
 ## 纠偏机制
 
-方案 A 不设编排器，纠偏通过三层机制实现：
+方案 A 不设编排器，纠偏通过两层机制实现：
 
-### 第一层：每步思考日志（防偏差）
-要求 agent 每步显式写出判断依据再行动。这一行为本身迫使 agent 放慢推理、验证假设，显著降低跳步和幻觉概率。
-
-### 第二层：cron 轮次间反射（纠偏差）
+### 第一层：cron 轮次间反射（纠偏差）
 ```
 Cron N: agent 走歪了 → 留言板上留下错误结果或困惑
 Cron N+1: 醒来读留言板 + status.json →
@@ -233,20 +195,41 @@ Cron N+1: 醒来读留言板 + status.json →
           方向不明确 → 留言困惑 + 设 IDLE → 等领导
 ```
 
-### 第三层：领导监督（人工纠偏）
-领导路过看到留言板 → 回复纠正 → `bb-wake` → 下轮 cron 按纠正后的方向执行
+### 第二层：领导监督（人工纠偏）
+领导路过看到留言板 → 回复纠正 → `bb-set-active` → 下轮 cron 按纠正后的方向执行
 
 ## 唤醒机制
 
-```bash
-# 一键唤醒
-scripts/bb-wake
+上级留言后，手动设置 ACTIVE 即可触发下轮 cron 执行：
 
-# 手动等价
-scripts/bb-status set status "ACTIVE"
+```bash
+scripts/bb-set-active
+# 或直接写 status.json
+bb-status set status ACTIVE
 ```
 
-上级的常规操作流：留言 → `bb-wake` → 等 cron 回应 → 看留言板 → 再留言...
+上级的常规操作流：留言 → `bb-set-active` → 等 cron 回应 → 看留言板 → 再留言...
+
+## 工作区结构
+
+render_agent_tools.py 将 agent 工具渲染到 `$worker_workspace/tools/` 目录下。agent 在 session 中通过 `./tools/bb-*` 路径访问这些工具。
+
+```
+$worker_workspace/
+├── tools/                    ← 渲染生成的工具（shell wrapper + 独立 ELF）
+│   ├── bb-get-status
+│   ├── bb-set-active
+│   ├── bb-set-busy
+│   ├── bb-set-idle
+│   ├── bb-set-mission
+│   ├── bb-get-mission
+│   ├── bb-worker-post
+│   ├── bb-leader-post
+│   ├── bb-recent
+│   └── bb-history
+├── SKILL.md                  ← agent 执行流程（由 core/workflow_part.md 渲染）
+└── PROMPT.md                 ← cron prompt 模板（由 core/prompt.md 渲染）
+```
 
 ## 配置
 
@@ -267,6 +250,5 @@ scripts/bb-status set status "ACTIVE"
 | 对比项 | v2 | v3 |
 |--------|----|----|
 | 部署模式 | 未明确 | 方案 A：isolated cron session |
-| 思考日志 | 无 | `think.log`，每步输出判断依据 |
-| 纠偏设计 | 隐含在流程中 | 显式三层（思考日志 + 反射 + 监督） |
+| 纠偏设计 | 隐含在流程中 | 显式两层（反射 + 监督） |
 | task 残留 | 未考虑 | isolated session 不留垃圾 |
