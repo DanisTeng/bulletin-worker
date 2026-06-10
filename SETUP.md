@@ -57,7 +57,8 @@ openclaw cron add \
 
 ### 4. 测试
 
-上级留言 → 设置状态为 ACTIVE：
+上级留言 → 设置状态为 ACTIVE。本工程 `scripts/` 下有同样功能的 shell 脚本
+（与工作区的 `tools/` 功能相同，但无需运行 setup 即可直接使用）：
 
 ```bash
 echo "帮我查一下这个数据" | scripts/bb-leader-post

@@ -35,6 +35,14 @@ echo "   留言板: $BOARD_PATH"
 echo ""
 
 # ── 安全校验 ──────────────────────────────────────────────
+if [ -z "$WORKER_WS" ] || [ -z "$BOARD_PATH" ]; then
+  echo "❌ worker_workspace 或 board_path 为空"
+  exit 1
+fi
+if [ "$WORKER_WS" = "/" ] || [ "$BOARD_PATH" = "/" ]; then
+  echo "❌ 不允许将根目录设为工作区或留言板"
+  exit 1
+fi
 if echo "$BOARD_PATH" | grep -qF "$WORKER_WS"; then
   echo "❌ board 路径不能是 workspace 的子目录"
   echo "     请修改 config.json，让 board_path 独立于 worker_workspace"
