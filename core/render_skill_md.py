@@ -47,7 +47,7 @@ def render_part(text: str, config: dict) -> str:
 def build_skill_md(config: dict) -> str:
     parts = []
 
-    for filename in ["self_recognition_part.md", "workflow_part.md"]:
+    for filename in ["self_recognition_part.md", "tools_description_part.md", "workflow_part.md"]:
         path = os.path.join(CORE_DIR, filename)
         if os.path.exists(path):
             with open(path, "r") as f:
