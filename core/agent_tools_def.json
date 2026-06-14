@@ -31,13 +31,13 @@
   },
   {
     "name": "bb-worker-post",
-    "description": "以 worker 身份发留言。用法: echo <内容> | bb-worker-post",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\""
+    "description": "以 worker 身份发留言。支持 echo 管道和 argv 两种用法。用法: echo <内容> | bb-worker-post 或 bb-worker-post <内容>",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\" \"$@\""
   },
   {
     "name": "bb-leader-post",
-    "description": "以领导身份发留言。用法: echo <内容> | bb-leader-post",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$SUPERIOR_NAME\""
+    "description": "以领导身份发留言。支持 echo 管道和 argv 两种用法。发完后自动设为 ACTIVE。用法: echo <内容> | bb-leader-post 或 bb-leader-post <内容>",
+    "template": "#!/bin/bash\n\"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$SUPERIOR_NAME\" \"$@\"\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" ACTIVE"
   },
   {
     "name": "bb-recent",

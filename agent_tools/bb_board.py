@@ -294,16 +294,21 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
 
 
 def _cmd_post(path: Path, args: list[str]):
-    """处理 post 子命令：发留言。内容从 stdin 读取，argv 只传 speaker。"""
+    """处理 post 子命令：发留言。内容优先从 argv 取，否则从 stdin 读。"""
     if len(args) < 1:
-        _err("用法: echo <内容> | bb_board.py <board_dir> post <发言人>")
-    if len(args) > 1:
-        _err(f"post 不接受额外参数: {' '.join(args[1:])}\n内容请通过 stdin 传入: echo <内容> | bb_board.py ...")
+        _err("用法: echo <内容> | bb_board.py <board_dir> post <发言人>\n       bb_board.py <board_dir> post <发言人> <内容>")
 
     speaker = args[0]
-    content = _read_stdin()
-    if not content:
-        _err("内容不能为空，请通过 stdin 传入")
+
+    if len(args) >= 2:
+        # argv 传参模式：后续所有参数拼接为一个字符串，支持 \n 转义
+        content = " ".join(args[1:])
+        content = content.replace("\\n", "\n")
+    else:
+        # stdin 管道模式
+        content = _read_stdin()
+        if not content:
+            _err("内容不能为空，请通过 stdin 或 argv 传入")
 
     first_line = post(path, speaker, content)
     print(first_line)
