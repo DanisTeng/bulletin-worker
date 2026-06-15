@@ -350,12 +350,17 @@ def history(
     """
     按日期范围查留言。
     返回结果列表，每段区间之间以 "--- YYYY-MM-DD ---" 分隔。
+    单次查询最多 730 天（约 2 年），避免意外大范围遍历。
     """
     if end is None:
         end = start
 
     if start > end:
         _err(f"起始日期 {start} 不能晚于结束日期 {end}")
+
+    delta = (end - start).days
+    if delta > 730:
+        _err(f"日期范围过大（{delta} 天），单次查询最多 730 天，建议缩小范围")
 
     results: list[str] = []
     for d in _date_range(start, end):
