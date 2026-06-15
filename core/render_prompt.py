@@ -47,9 +47,7 @@ def main():
     with open(OUTPUT_PATH, "w") as f:
         f.write(rendered)
 
-    # 日志输出到 stderr，纯 prompt 输出到 stdout（方便 setup.sh 用 $(...) 捕获）
-    print(f"✅ Rendered to {OUTPUT_PATH}", file=sys.stderr)
-    print(rendered)
+    print(f"🌟 提示词已渲染到 {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":
