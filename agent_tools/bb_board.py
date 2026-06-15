@@ -235,13 +235,22 @@ def _collect_lines_around(
             hi = mid
     pivot = lo
 
-    # 从锚点行向两侧展
-    all_timed.extend(anchor_lines[max(0, pivot - before):pivot])
-    collected_before = min(pivot, before)
-    all_timed.append(anchor_lines[pivot])
-    collected_after = 1
-    all_timed.extend(anchor_lines[pivot + 1:pivot + 1 + after])
-    collected_after = min(len(anchor_lines) - pivot - 1, after)
+    # 锚点行本身仅在 before>0 或 after>0 时才加入结果集
+    has_anchor = before > 0 or after > 0
+    if has_anchor:
+        before_start = max(0, pivot - before)
+        all_timed.extend(anchor_lines[before_start:pivot])
+        collected_before = pivot - before_start
+
+        all_timed.append(anchor_lines[pivot])
+        collected_after = 1
+
+        after_end = min(len(anchor_lines), pivot + 1 + after)
+        all_timed.extend(anchor_lines[pivot + 1:after_end])
+        collected_after += after_end - pivot - 1
+    else:
+        collected_before = 0
+        collected_after = 0
 
     # 向前扩文件
     left_idx = anchor_idx - 1
