@@ -8,6 +8,7 @@ render_prompt.py — 渲染 PROMPT.md（cron prompt）
 import json
 import os
 import re
+import sys
 
 CORE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CORE_DIR)
