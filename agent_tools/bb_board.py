@@ -191,59 +191,77 @@ def _collect_lines_around(
 ) -> list[str]:
     """
     以 anchor 为锚点，取前 before 条、后 after 条。
-    按文件名定位 anchor 所在文件，只读必要文件的必要行。
+    以锚点日期为中心向外扩文件，只读必要文件，直到凑够想要的条数。
     支持可选 grep 过滤。返回按时间顺序排列的行列表。
     """
-    # 找到 anchor 所在的文件名范围
-    anchor_date_str = anchor.strftime("%Y-%m-%d")
     files = _sorted_board_files(board_dir)
     if not files:
         return []
 
-    # 缩小到 anchor 附近若干文件
-    # 找到 anchor 日期在文件列表中的位置
+    # 找到锚点日期在文件列表中的位置
+    anchor_date_str = anchor.strftime("%Y-%m-%d")
     anchor_idx = 0
     for i, fp in enumerate(files):
         if fp.stem >= anchor_date_str:
             anchor_idx = i
             break
     else:
-        # anchor 比所有文件都晚，用最后一个
         anchor_idx = len(files) - 1
 
-    # 估算每个文件的行数，往后多看几个文件以保证足够的 after 范围
-    # 先读 anchor 附近前后的文件（保守估计每文件 ~50 行）
-    lookback_files = max(1, (before // 50) + 2)
-    lookahead_files = max(1, (after // 50) + 2)
-    start_idx = max(0, anchor_idx - lookback_files)
-    end_idx = min(len(files), anchor_idx + lookahead_files + 1)
-
-    # 展平成带时间戳的行
+    # 从锚点文件向外扩张，读入足够行
     all_timed: list[tuple[datetime, str]] = []
-    for fp in files[start_idx:end_idx]:
-        lines = _file_lines(fp)
-        for line in lines:
+    collected_before = 0
+    collected_after = 0
+
+    # 先读锚点文件
+    def _load_file_lines(fp: Path) -> list[tuple[datetime, str]]:
+        result = []
+        for line in _file_lines(fp):
             ts = _parse_line_ts(line)
             if ts is not None:
-                all_timed.append((ts, line))
+                result.append((ts, line))
+        return result
 
-    if not all_timed:
-        return []
-
-    # 二分查找第一个 >= anchor 的行
+    # 从锚点开始螺旋扩张：左 → 右 → 左 → 右
+    anchor_lines = _load_file_lines(files[anchor_idx])
+    # 找到 anchor 时刻在该文件中的位置
     target = anchor.timestamp()
-    lo, hi = 0, len(all_timed)
+    lo, hi = 0, len(anchor_lines)
     while lo < hi:
         mid = (lo + hi) // 2
-        if all_timed[mid][0].timestamp() < target:
+        if anchor_lines[mid][0].timestamp() < target:
             lo = mid + 1
         else:
             hi = mid
+    pivot = lo
 
-    idx = lo
-    start = max(0, idx - before)
-    end = min(len(all_timed), idx + after)
-    selected = [line for _, line in all_timed[start:end]]
+    # 从锚点行向两侧展
+    all_timed.extend(anchor_lines[max(0, pivot - before):pivot])
+    collected_before = min(pivot, before)
+    all_timed.append(anchor_lines[pivot])
+    collected_after = 1
+    all_timed.extend(anchor_lines[pivot + 1:pivot + 1 + after])
+    collected_after = min(len(anchor_lines) - pivot - 1, after)
+
+    # 向前扩文件
+    left_idx = anchor_idx - 1
+    while collected_before < before and left_idx >= 0:
+        lines = _load_file_lines(files[left_idx])
+        take = min(before - collected_before, len(lines))
+        all_timed = lines[-take:] + all_timed
+        collected_before += take
+        left_idx -= 1
+
+    # 向后扩文件
+    right_idx = anchor_idx + 1
+    while collected_after < after and right_idx < len(files):
+        lines = _load_file_lines(files[right_idx])
+        take = min(after - collected_after, len(lines))
+        all_timed = all_timed + lines[:take]
+        collected_after += take
+        right_idx += 1
+
+    selected = [line for _, line in all_timed]
     return _grep_lines(selected, grep)
 
 
