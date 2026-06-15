@@ -1,5 +1,5 @@
 #!/bin/bash
-# bb-recent [行数]  — 看最近的留言，默认 20 行
+# bb-recent [行数] [--grep <关键词>]  — 看最近的留言，默认 20 行，支持关键词过滤
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 exec python3 "$SCRIPT_DIR/bb.py" bb-recent "$@"

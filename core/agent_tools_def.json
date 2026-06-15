@@ -41,12 +41,17 @@
   },
   {
     "name": "bb-recent",
-    "description": "查看最近留言，默认 20 行。用法: bb-recent [行数]",
+    "description": "查看最近留言，默认 20 行。支持 --grep 关键词过滤。用法: bb-recent [行数] [--grep <关键词>]",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" recent \"$@\""
   },
   {
     "name": "bb-history",
     "description": "按日期查留言。用法: bb-history <YYYY-MM-DD> [YYYY-MM-DD]",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" history \"$@\""
+  },
+  {
+    "name": "bb-around",
+    "description": "以指定时间为锚点查留言。用法: bb-around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" around \"$@\""
   }
 ]
