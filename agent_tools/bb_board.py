@@ -182,21 +182,46 @@ def _parse_line_ts(line: str) -> datetime | None:
         return None
 
 
-def _pick_lines_around(
-    accumulated: list[tuple[str, list[str]]],
+def _collect_lines_around(
+    board_dir: Path,
     anchor: datetime,
     before: int,
     after: int,
     grep: str | None,
 ) -> list[str]:
     """
-    在聚合留言中，以 anchor 为锚点，取前 before 条、后 after 条。
-    支持可选 grep 过滤（先过滤再取范围）。
-    返回按时间顺序排列的行列表。
+    以 anchor 为锚点，取前 before 条、后 after 条。
+    按文件名定位 anchor 所在文件，只读必要文件的必要行。
+    支持可选 grep 过滤。返回按时间顺序排列的行列表。
     """
-    # 先展平成带解析时间戳的行
+    # 找到 anchor 所在的文件名范围
+    anchor_date_str = anchor.strftime("%Y-%m-%d")
+    files = _sorted_board_files(board_dir)
+    if not files:
+        return []
+
+    # 缩小到 anchor 附近若干文件
+    # 找到 anchor 日期在文件列表中的位置
+    anchor_idx = 0
+    for i, fp in enumerate(files):
+        if fp.stem >= anchor_date_str:
+            anchor_idx = i
+            break
+    else:
+        # anchor 比所有文件都晚，用最后一个
+        anchor_idx = len(files) - 1
+
+    # 估算每个文件的行数，往后多看几个文件以保证足够的 after 范围
+    # 先读 anchor 附近前后的文件（保守估计每文件 ~50 行）
+    lookback_files = max(1, (before // 50) + 2)
+    lookahead_files = max(1, (after // 50) + 2)
+    start_idx = max(0, anchor_idx - lookback_files)
+    end_idx = min(len(files), anchor_idx + lookahead_files + 1)
+
+    # 展平成带时间戳的行
     all_timed: list[tuple[datetime, str]] = []
-    for _, lines in accumulated:
+    for fp in files[start_idx:end_idx]:
+        lines = _file_lines(fp)
         for line in lines:
             ts = _parse_line_ts(line)
             if ts is not None:
@@ -205,7 +230,7 @@ def _pick_lines_around(
     if not all_timed:
         return []
 
-    # 二分查找第一个 >= anchor 的位置
+    # 二分查找第一个 >= anchor 的行
     target = anchor.timestamp()
     lo, hi = 0, len(all_timed)
     while lo < hi:
@@ -218,7 +243,6 @@ def _pick_lines_around(
     idx = lo
     start = max(0, idx - before)
     end = min(len(all_timed), idx + after)
-
     selected = [line for _, line in all_timed[start:end]]
     return _grep_lines(selected, grep)
 
@@ -277,48 +301,45 @@ def _read_stdin() -> str:
     return content
 
 
-def _accumulate(board_dir: Path) -> list[tuple[str, list[str]]]:
+def _sorted_board_files(board_dir: Path) -> list[Path]:
     """
-    跨日期聚合留言。
-    返回 [(date_str, [line1, line2, ...]), ...]，按日期升序排列。
+    返回按文件名升序排列的留言文件列表。
     """
-    results: list[tuple[str, list[str]]] = []
     board_path = Path(board_dir)
-
     if not board_path.is_dir():
         _err(f"留言板目录不存在: {board_dir}")
-
-    # 收集所有 YYYY-MM-DD.md 文件
     glob_pattern = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md"
-    files = sorted(board_path.glob(glob_pattern))
+    return sorted(board_path.glob(glob_pattern))
 
-    for fp in files:
-        lines = _read_board_file(fp)
-        if not lines:
-            continue
-        date_str = fp.stem  # "2026-06-08"
-        results.append((date_str, lines))
 
-    return results
+def _file_lines(fp: Path) -> list[str]:
+    """读取单个留言文件的内容行，去掉尾部空行和 # 元数据行。"""
+    return _read_board_file(fp)
 
 
 def recent(board_dir: Path, n: int = 20) -> list[str]:
     """
     读最近的 N 条留言，跨多个旧文件聚合。
+    从最新的文件开始倒着读，凑够 N 行即止。
     返回按时间顺序排列的行列表（最新的在末尾）。
     """
     if n < 1:
         return []
 
-    accumulated = _accumulate(board_dir)
-    # accumulated 已按日期升序排列
+    files = _sorted_board_files(board_dir)
 
-    # 从后往前收集 N 行
+    # 从最新的文件倒序读，收集 N 行
     all_lines: list[str] = []
-    for _, lines in reversed(accumulated):
+    for fp in reversed(files):
+        lines = _file_lines(fp)
+        if not lines:
+            continue
         all_lines = lines + all_lines
         if len(all_lines) >= n:
             break
+
+    if not all_lines:
+        return []
 
     return all_lines[-n:]
 
@@ -476,8 +497,7 @@ def _cmd_around(path: Path, args: list[str]):
     if after < 0:
         _err("向后条数不能为负数")
 
-    accumulated = _accumulate(path)
-    lines = _pick_lines_around(accumulated, anchor, before, after, grep)
+    lines = _collect_lines_around(path, anchor, before, after, grep)
     if not lines:
         return
     for line in lines:
