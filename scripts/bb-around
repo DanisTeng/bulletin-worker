@@ -1,0 +1,6 @@
+#!/bin/bash
+# bb-around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]
+# 以指定时间为锚点，往前/往后取若干条留言
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "$SCRIPT_DIR/../agent_tools/bb_board.py" "$BB_BOARD_PATH" around "$@"

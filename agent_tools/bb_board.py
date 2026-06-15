@@ -14,27 +14,32 @@ bb_board.py — 留言板读写工具
   cat report.md | bb_board.py <board_dir> post <发言人>
   printf "第一行\n第二行" | bb_board.py <board_dir> post <发言人>
 
-  # 看最近的留言（默认 20 行）
-  bb_board.py <board_dir> recent [行数]
+  # 看最近的留言（默认 20 行），支持关键词过滤
+  bb_board.py <board_dir> recent [行数] [--grep <关键词>]
 
   # 按日期查留言
   bb_board.py <board_dir> history <YYYY-MM-DD> [YYYY-MM-DD]
+
+  # 以指定时间为锚点，往前/往后取若干条
+  bb_board.py <board_dir> around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]
 
 示例:
   echo "翻译 /docs/manual.md" | bb_board.py /tmp/board post Danis
   printf "进度更新\n已完成第1章" | bb_board.py /tmp/board post James
   cat status.txt | bb_board.py /tmp/board post James
-  bb_board.py /tmp/board recent           # 最近 20 行
-  bb_board.py /tmp/board recent 50        # 最近 50 行
+  bb_board.py /tmp/board recent                    # 最近 20 行
+  bb_board.py /tmp/board recent 50                 # 最近 50 行
+  bb_board.py /tmp/board recent 50 --grep "翻译"   # 最近 50 行中只显示含"翻译"的
   bb_board.py /tmp/board history 2026-06-08
   bb_board.py /tmp/board history 2026-06-01 2026-06-08
+  bb_board.py /tmp/board around 2026-06-15T14:00 10 5               # 14:00 前10后5条
+  bb_board.py /tmp/board around 2026-06-15T14:00 10 5 --grep "卡住"  # 同上，只显示含"卡住"的
 
 留言格式:
   2026-06-08 14:30 [Danis] 翻译 /docs/manual.md
   2026-06-08 14:31 [James] 收到，开始翻译第1章
 """
 
-import json
 import sys
 from datetime import datetime, timedelta, date as Date
 from pathlib import Path
@@ -61,6 +66,20 @@ def _err(msg: str):
     sys.exit(_EXIT_ERR)
 
 
+# ── 行过滤 ───────────────────────────────────────────────────
+
+
+def _grep_lines(lines: list[str], keyword: str | None) -> list[str]:
+    """
+    按关键词过滤行。keyword 为 None 或空字符串时不过滤。
+    大小写不敏感。
+    """
+    if not keyword:
+        return lines
+    kw = keyword.lower()
+    return [l for l in lines if kw in l.lower()]
+
+
 # ── 日期工具 ───────────────────────────────────────────────────
 
 
@@ -73,11 +92,6 @@ def _parse_date(s: str) -> Date:
         return Date(int(parts[0]), int(parts[1]), int(parts[2]))
     except ValueError:
         _err(f"非法日期: {s}")
-
-
-def _today() -> Date:
-    """返回今天日期。"""
-    return Date.today()
 
 
 def _date_range(start: Date, end: Date):
@@ -125,6 +139,207 @@ def _read_board_file(fp: Path) -> list[str]:
         lines.pop()
     # 过滤 # 开头的元数据行
     return [l for l in lines if not l.startswith("# ")]
+
+
+# ── 时间戳解析 ───────────────────────────────────────────────
+
+
+def _parse_datetime(s: str) -> datetime:
+    """
+    解析 YYYY-MM-DDThh:mm 格式时间戳。
+    未指定分钟时默认 :00，未指定日期时默认今天。
+    """
+    # 支持 YYYY-MM-DDThh:mm 和 YYYY-MM-DD hh:mm
+    s = s.replace(" ", "T")
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H")
+    except ValueError:
+        pass
+    _err(f"时间格式错误，应为 YYYY-MM-DDThh:mm，收到: {s}")
+
+
+def _parse_line_ts(line: str) -> datetime | None:
+    """
+    尝试从留言行首解析时间戳。
+    格式: YYYY-MM-DD HH:MM [Speaker] ...
+    解析失败返回 None。
+    """
+    if len(line) < 16:
+        return None
+    try:
+        return datetime.strptime(line[:16], "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+# ── 留言文件扫描 ──────────────────────────────────────────────
+
+
+def _sorted_board_files(board_dir: Path) -> list[Path]:
+    """
+    返回按文件名升序排列的留言文件列表。
+    """
+    board_path = Path(board_dir)
+    if not board_path.is_dir():
+        _err(f"留言板目录不存在: {board_dir}")
+    glob_pattern = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md"
+    return sorted(board_path.glob(glob_pattern))
+
+
+def _load_timed_lines(fp: Path) -> list[tuple[datetime, str]]:
+    """读取单个留言文件，返回带解析时间戳的行列表。跳过时间戳解析失败的行。"""
+    result: list[tuple[datetime, str]] = []
+    for line in _read_board_file(fp):
+        ts = _parse_line_ts(line)
+        if ts is not None:
+            result.append((ts, line))
+    return result
+
+
+# ── Around 子命令：锚点定位 + 螺旋扩张 ─────────────────────────
+
+
+def _find_anchor_pivot(lines: list[tuple[datetime, str]],
+                       anchor: datetime) -> int:
+    """
+    二分查找 anchor 在 lines 中的位置，返回第一个 >= anchor 的索引。
+    lines 为空时返回 0。如果所有行都早于 anchor，返回 len(lines)。
+    """
+    if not lines:
+        return 0
+    target = anchor.timestamp()
+    lo, hi = 0, len(lines)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if lines[mid][0].timestamp() < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+
+# ── 中间结果包装 ──────────────────────────────────────────────
+
+
+class _Collected:
+    """从锚点收集到的中间结果：行列表 + 已收集前/后计数。"""
+    __slots__ = ("all_timed", "collected_before", "collected_after")
+
+    def __init__(self, all_timed: list, collected_before: int,
+                 collected_after: int):
+        self.all_timed = all_timed
+        self.collected_before = collected_before
+        self.collected_after = collected_after
+
+
+def _collect_from_pivot(
+    lines: list[tuple[datetime, str]],
+    pivot: int,
+    before: int,
+    after: int,
+) -> _Collected | None:
+    """
+    从锚点行向两侧取 before/after 条。
+    锚点行始终包含在结果中。
+    pivot 超出 lines 范围时返回 None。
+    """
+    if pivot >= len(lines):
+        return None
+
+    before_start = max(0, pivot - before)
+    before_lines = lines[before_start:pivot]
+    collected_before = len(before_lines)
+
+    after_end = min(len(lines), pivot + 1 + after)
+    after_lines = lines[pivot:after_end]
+    collected_after = len(after_lines)
+
+    return _Collected(before_lines + after_lines, collected_before,
+                      collected_after)
+
+
+def _collect_tail(lines: list[tuple[datetime, str]],
+                  before: int) -> _Collected:
+    """从文件末尾取 before 条（锚点晚于所有行时用）。"""
+    take = min(before, len(lines))
+    return _Collected(lines[-take:], take, 0)
+
+
+def _collect_head(lines: list[tuple[datetime, str]],
+                  after: int) -> _Collected:
+    """从文件开头取 after 条（锚点早于所有行时用）。"""
+    take = min(after, len(lines))
+    return _Collected(lines[:take], 0, take)
+
+
+def _collect_lines_around(
+    board_dir: Path,
+    anchor: datetime,
+    before: int,
+    after: int,
+    grep: str | None,
+) -> list[str]:
+    """
+    以 anchor 为锚点，取前 before 条、后 after 条。
+    以锚点日期为中心向外扩文件，只读必要文件，直到凑够想要的条数。
+    支持可选 grep 过滤。返回按时间顺序排列的行列表。
+    """
+    files = _sorted_board_files(board_dir)
+    if not files:
+        return []
+
+    # 找到锚点日期在文件列表中的位置
+    anchor_date_str = anchor.strftime("%Y-%m-%d")
+    anchor_idx = 0
+    for i, fp in enumerate(files):
+        if fp.stem >= anchor_date_str:
+            anchor_idx = i
+            break
+    else:
+        anchor_idx = len(files) - 1
+
+    # 读锚点文件，找到锚点行位置
+    anchor_lines = _load_timed_lines(files[anchor_idx])
+    pivot = _find_anchor_pivot(anchor_lines, anchor)
+
+    # 从锚点文件取初始行
+    if anchor_lines and pivot < len(anchor_lines):
+        # 正常情况：锚点行存在，从它向两侧取
+        collected = _collect_from_pivot(anchor_lines, pivot, before, after)
+    elif before > 0:
+        # 锚点晚于所有行：从最后一个文件的末尾取 before 条
+        collected = _collect_tail(anchor_lines, before)
+    else:
+        # 锚点早于所有行且 before=0：从第一个文件开头取 after 条
+        collected = _collect_head(anchor_lines, after)
+
+    if not collected:
+        return []
+
+    # 向前扩文件（不够 before 条时）
+    left_idx = anchor_idx - 1
+    while collected.collected_before < before and left_idx >= 0:
+        lines = _load_timed_lines(files[left_idx])
+        take = min(before - collected.collected_before, len(lines))
+        collected.all_timed = lines[-take:] + collected.all_timed
+        collected.collected_before += take
+        left_idx -= 1
+
+    # 向后扩文件（不够 after 条时）
+    right_idx = anchor_idx + 1
+    while collected.collected_after < after and right_idx < len(files):
+        lines = _load_timed_lines(files[right_idx])
+        take = min(after - collected.collected_after, len(lines))
+        collected.all_timed = collected.all_timed + lines[:take]
+        collected.collected_after += take
+        right_idx += 1
+
+    selected = [line for _, line in collected.all_timed]
+    return _grep_lines(selected, grep)
 
 
 # ── 核心功能 ───────────────────────────────────────────────────
@@ -181,48 +396,29 @@ def _read_stdin() -> str:
     return content
 
 
-def _accumulate(board_dir: Path) -> list[tuple[str, list[str]]]:
-    """
-    跨日期聚合留言。
-    返回 [(date_str, [line1, line2, ...]), ...]，按日期升序排列。
-    """
-    results: list[tuple[str, list[str]]] = []
-    board_path = Path(board_dir)
-
-    if not board_path.is_dir():
-        _err(f"留言板目录不存在: {board_dir}")
-
-    # 收集所有 YYYY-MM-DD.md 文件
-    glob_pattern = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md"
-    files = sorted(board_path.glob(glob_pattern))
-
-    for fp in files:
-        lines = _read_board_file(fp)
-        if not lines:
-            continue
-        date_str = fp.stem  # "2026-06-08"
-        results.append((date_str, lines))
-
-    return results
-
-
 def recent(board_dir: Path, n: int = 20) -> list[str]:
     """
     读最近的 N 条留言，跨多个旧文件聚合。
+    从最新的文件开始倒着读，凑够 N 行即止。
     返回按时间顺序排列的行列表（最新的在末尾）。
     """
     if n < 1:
         return []
 
-    accumulated = _accumulate(board_dir)
-    # accumulated 已按日期升序排列
+    files = _sorted_board_files(board_dir)
 
-    # 从后往前收集 N 行
+    # 从最新的文件倒序读，收集 N 行
     all_lines: list[str] = []
-    for _, lines in reversed(accumulated):
+    for fp in reversed(files):
+        lines = _read_board_file(fp)
+        if not lines:
+            continue
         all_lines = lines + all_lines
         if len(all_lines) >= n:
             break
+
+    if not all_lines:
+        return []
 
     return all_lines[-n:]
 
@@ -233,12 +429,17 @@ def history(
     """
     按日期范围查留言。
     返回结果列表，每段区间之间以 "--- YYYY-MM-DD ---" 分隔。
+    单次查询最多 730 天（约 2 年），避免意外大范围遍历。
     """
     if end is None:
         end = start
 
     if start > end:
         _err(f"起始日期 {start} 不能晚于结束日期 {end}")
+
+    delta = (end - start).days
+    if delta > 730:
+        _err(f"日期范围过大（{delta} 天），单次查询最多 730 天，建议缩小范围")
 
     results: list[str] = []
     for d in _date_range(start, end):
@@ -259,19 +460,15 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
     """
     解析子命令及其参数。
     返回 (path, subcommand, args)，其中 args 为子命令的剩余参数列表。
-    若 path 为空（命令行只有子命令），返回 None。
     """
     n = len(argv)
-    # argv[0] 是脚本名
-    # 期望: [script] <board_dir> <subcmd> [args...]
 
     if i >= n:
         return None, name, []
 
     # 检查 argv[i] 是否是保留字（子命令名）
-    subcommands = {"post", "recent", "history"}
+    subcommands = {"post", "recent", "history", "around"}
     if argv[i] in subcommands:
-        # 没有 board_dir
         _err("缺少 <board_dir> 参数")
 
     # 这是 board_dir
@@ -279,7 +476,7 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
     i += 1
 
     if i >= n:
-        _err("缺少子命令 (post / recent / history)")
+        _err("缺少子命令 (post / recent / history / around)")
 
     subcmd = argv[i]
     if subcmd not in subcommands:
@@ -296,16 +493,15 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
 def _cmd_post(path: Path, args: list[str]):
     """处理 post 子命令：发留言。内容优先从 argv 取，否则从 stdin 读。"""
     if len(args) < 1:
-        _err("用法: echo <内容> | bb_board.py <board_dir> post <发言人>\n       bb_board.py <board_dir> post <发言人> <内容>")
+        _err("用法: echo <内容> | bb_board.py <board_dir> post <发言人>\n"
+             "       bb_board.py <board_dir> post <发言人> <内容>")
 
     speaker = args[0]
 
     if len(args) >= 2:
-        # argv 传参模式：后续所有参数拼接为一个字符串，支持 \n 转义
         content = " ".join(args[1:])
         content = content.replace("\\n", "\n")
     else:
-        # stdin 管道模式
         content = _read_stdin()
         if not content:
             _err("内容不能为空，请通过 stdin 或 argv 传入")
@@ -314,8 +510,32 @@ def _cmd_post(path: Path, args: list[str]):
     print(first_line)
 
 
+def _pop_grep(args: list[str]) -> tuple[list[str], str | None]:
+    """
+    从参数列表中提取 --grep <关键词>，返回 (剩余参数, 关键词)。
+    """
+    grep = None
+    remaining = []
+    skip_next = False
+    for i, a in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--grep":
+            if i + 1 < len(args):
+                grep = args[i + 1]
+                skip_next = True
+            else:
+                _err("--grep 后面需要跟关键词")
+        else:
+            remaining.append(a)
+    return remaining, grep
+
+
 def _cmd_recent(path: Path, args: list[str]):
     """处理 recent 子命令：看最近留言。"""
+    args, grep = _pop_grep(args)
+
     n = 20
     if args:
         try:
@@ -326,6 +546,38 @@ def _cmd_recent(path: Path, args: list[str]):
             _err("行数必须大于 0")
 
     lines = recent(path, n)
+    lines = _grep_lines(lines, grep)
+    if not lines:
+        return
+    for line in lines:
+        print(line)
+
+
+def _cmd_around(path: Path, args: list[str]):
+    """处理 around 子命令：以指定时间为锚点查留言。"""
+    args, grep = _pop_grep(args)
+
+    if len(args) < 3:
+        _err("用法: bb_board.py <board_dir> around "
+             "<YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]")
+
+    anchor = _parse_datetime(args[0])
+
+    try:
+        before = int(args[1])
+    except ValueError:
+        _err(f"向前条数必须为整数: {args[1]}")
+    if before < 0:
+        _err("向前条数不能为负数")
+
+    try:
+        after = int(args[2])
+    except ValueError:
+        _err(f"向后条数必须为整数: {args[2]}")
+    if after < 0:
+        _err("向后条数不能为负数")
+
+    lines = _collect_lines_around(path, anchor, before, after, grep)
     if not lines:
         return
     for line in lines:
@@ -356,7 +608,6 @@ def main():
     if len(argv) == 1:
         _help(__doc__)
 
-    # 支持 --help 和 --version
     if argv[1] == "--help" or argv[1] == "-h":
         _help(__doc__)
     if argv[1] == "--version" or argv[1] == "-V":
@@ -364,12 +615,12 @@ def main():
         sys.exit(_EXIT_OK)
 
     path, subcmd, args = _parse_subcommand(argv, 1, "bb_board")
-    # path 一定非 None，因为 _parse_subcommand 遇到无 path 会 _err
 
     handlers = {
         "post": _cmd_post,
         "recent": _cmd_recent,
         "history": _cmd_history,
+        "around": _cmd_around,
     }
 
     handler = handlers.get(subcmd)
