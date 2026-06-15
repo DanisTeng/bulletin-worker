@@ -66,8 +66,7 @@ def main():
     with open(OUTPUT_PATH, "w") as f:
         f.write(skill_md)
 
-    print(f"✅ Rendered to {OUTPUT_PATH}")
-    print(skill_md)
+    print(f"🌟 SKILL.md 已渲染到 {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

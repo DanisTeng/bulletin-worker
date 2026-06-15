@@ -62,13 +62,7 @@ python3 "$CORE_DIR/render_agent_tools.py"
 # ── 第 2 步：cron prompt ──────────────────────────
 echo ""
 echo "📜 [2/3] 渲染 cron prompt..."
-PROMPT=$(python3 "$CORE_DIR/render_prompt.py")
-echo ""
-echo "──────────────────────────────────────"
-echo "Cron prompt（也可用于 stdio 输入）:"
-echo "──────────────────────────────────────"
-echo "$PROMPT"
-echo "──────────────────────────────────────"
+python3 "$CORE_DIR/render_prompt.py"
 echo ""
 
 # ── 第 3 步：SKILL.md ────────────────────────────
