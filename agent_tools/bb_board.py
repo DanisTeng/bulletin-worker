@@ -224,30 +224,38 @@ def _collect_lines_around(
 
     # 从锚点开始螺旋扩张：左 → 右 → 左 → 右
     anchor_lines = _load_file_lines(files[anchor_idx])
-    # 找到 anchor 时刻在该文件中的位置
-    target = anchor.timestamp()
-    lo, hi = 0, len(anchor_lines)
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if anchor_lines[mid][0].timestamp() < target:
-            lo = mid + 1
-        else:
-            hi = mid
-    pivot = lo
+    pivot = 0
+    if anchor_lines:
+        # 找到 anchor 时刻在该文件中的位置
+        target = anchor.timestamp()
+        lo, hi = 0, len(anchor_lines)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if anchor_lines[mid][0].timestamp() < target:
+                lo = mid + 1
+            else:
+                hi = mid
+        pivot = lo
 
-    # 锚点行本身仅在 before>0 或 after>0 时才加入结果集
-    has_anchor = before > 0 or after > 0
-    if has_anchor:
+    # 从锚点行向两侧取
+    if anchor_lines and pivot < len(anchor_lines):
+        # 锚点行存在：取前+锚点行+后
         before_start = max(0, pivot - before)
         all_timed.extend(anchor_lines[before_start:pivot])
         collected_before = pivot - before_start
 
-        all_timed.append(anchor_lines[pivot])
-        collected_after = 1
-
         after_end = min(len(anchor_lines), pivot + 1 + after)
+        all_timed.append(anchor_lines[pivot])
         all_timed.extend(anchor_lines[pivot + 1:after_end])
-        collected_after += after_end - pivot - 1
+        collected_after = 1 + min(after, after_end - pivot - 1)
+    elif before > 0:
+        # 锚点行不存在（时间早于所有消息或晚于所有消息）：只向后或向前取
+        # 时间晚于所有消息 → pivot == len(anchor_lines) → 从最后一个文件末尾取 before 条
+        # 时间早于所有消息 → anchor_lines 为空或 pivot == 0 → 从当前文件开头取 after 条
+        # 先用当前文件凑一些
+        after_end = min(len(anchor_lines), min(before, after))
+        all_timed.extend(anchor_lines[:after_end])
+        collected_after = after_end
     else:
         collected_before = 0
         collected_after = 0
