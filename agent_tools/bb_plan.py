@@ -15,7 +15,7 @@ bb_plan.py — 计划书工具
 
   3. 更新 task
      bb_plan.py <plan.json> update --index=N [--done=true|false] [--note="..."]
-     更新指定编号的 task。不会自动触发 cycles++。
+     更新指定编号的 task 的完成状态和/或备注。
 """
 
 import argparse
@@ -41,7 +41,7 @@ _ACCEPTANCE_MAX = 100
 _NOTE_MAX = 100
 
 _REQUIRED_TOP_LEVEL = {"briefing", "tasks"}
-_REQUIRED_TASK_FIELDS = {"index", "desc", "acceptance", "done", "cycles", "note"}
+_REQUIRED_TASK_FIELDS = {"index", "desc", "acceptance", "done", "note"}
 
 
 # ── IO ──────────────────────────────────────────────────────────────
@@ -98,6 +98,7 @@ def _validate_task(task, idx: int) -> list[str]:
     if missing:
         errors.append(f"tasks[{idx}]: 缺少字段 {sorted(missing)}")
     if extra:
+        # 允许 agent 临时加辅助字段，仅 warning
         print(f"⚠️  tasks[{idx}]: 额外字段 {sorted(extra)}——agent 自定义？", file=sys.stderr)
 
     # 字段类型与长度
@@ -114,11 +115,6 @@ def _validate_task(task, idx: int) -> list[str]:
     if "done" in task:
         if not isinstance(task["done"], bool):
             errors.append(f"tasks[{idx}].done: 应为 boolean，实际为 {type(task['done']).__name__}")
-
-    # cycles 校验
-    if "cycles" in task:
-        if not isinstance(task["cycles"], int) or task["cycles"] < 0:
-            errors.append(f"tasks[{idx}].cycles: 应为非负整数")
 
     return errors
 
@@ -180,7 +176,6 @@ def _validate_and_output(plan: dict):
     # 通过后打印结构性摘要
     tasks = plan.get("tasks", [])
     done_count = sum(1 for t in tasks if t.get("done"))
-    total_cycles = sum(t.get("cycles", 0) for t in tasks)
     briefing_preview = plan.get("briefing", "")
     if len(briefing_preview) > 50:
         briefing_preview = briefing_preview[:47] + "..."
@@ -188,7 +183,6 @@ def _validate_and_output(plan: dict):
     print(f"✅ plan.json 格式正确")
     print(f"📌 briefing: {briefing_preview}")
     print(f"📊 tasks: {len(tasks)} 个（已完成 {done_count}，未完成 {len(tasks) - done_count}）")
-    print(f"⏱  总周期消耗: {total_cycles}")
     return True
 
 
@@ -210,9 +204,8 @@ def show_next(plan: dict):
         return
 
     done_count = sum(1 for t in tasks if t.get("done"))
-    total_cycles = sum(t.get("cycles", 0) for t in tasks)
 
-    print(f"📊 进度: {len(tasks)} tasks | ✅ {done_count} 完成 | ⏱ {total_cycles} 周期")
+    print(f"📊 进度: {len(tasks)} tasks | ✅ {done_count} 完成")
     print()
 
     # 找第一个 done=false 的 task
@@ -232,7 +225,6 @@ def show_next(plan: dict):
     print(f"▶️  当前 task [#{idx}]:")
     print(f"   任务: {next_task.get('desc', '?')}")
     print(f"   验收: {next_task.get('acceptance', '?')}")
-    print(f"   周期: {next_task.get('cycles', 0)} 次")
     note = next_task.get("note", "")
     if note:
         print(f"   备注: {note}")
@@ -261,7 +253,7 @@ def _find_task_by_index(tasks: list, index: int) -> dict | None:
 
 
 def update(plan: dict, path: str, index: int, done: bool | None, note: str | None):
-    """更新指定 index 的 task。写回文件。"""
+    """更新指定 index 的 task 的 done 和/或 note。写回文件。"""
     tasks = plan.get("tasks", [])
 
     if not tasks:

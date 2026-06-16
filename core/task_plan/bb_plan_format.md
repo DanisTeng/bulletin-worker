@@ -10,7 +10,7 @@
 {
   "briefing": "...",
   "tasks": [
-    { "index": 1, "desc": "...", "acceptance": "...", "done": false, "cycles": 0, "note": "" }
+    { "index": 1, "desc": "...", "acceptance": "...", "done": false, "note": "" }
   ]
 }
 ```
@@ -25,18 +25,18 @@
 | `tasks[].desc` | string | **必填**。task 说明，≤100 字。 |
 | `tasks[].acceptance` | string | **必填**。验收标准，≤100 字。什么情况下算完成。 |
 | `tasks[].done` | boolean | **必填**。`true` 已完成，`false` 未完成。 |
-| `tasks[].cycles` | number | **必填**。为该 task 消耗的 cron 周期次数，≥0。 |
 | `tasks[].note` | string | **必填**。备注，≤100 字，无内容则空字符串 `""`。 |
+
+> cycles 字段已移除。board 留言记录代替了周期计数。需要回溯执行记录用 `bb-recent --grep`。
 
 ## 编辑规则
 
 1. **index 自动维护**：`validate` 模式下会自动按列表顺序重写全部 index（从 1 开始）。不要手动改 index。
-2. **不删除字段**：上述 8 个字段每个 task 都必须有。不要删 `note` 或留 `null`。
+2. **不删除字段**：上述 7 个字段每个 task 都必须有。不要删 `note` 或留 `null`。
 3. **不擅自添加字段**：只能在上述结构内编辑。不要在 task 上加自定义字段。
 4. **排序保持**：tasks 数组按添加顺序排列。新 task 追加到末尾。
 5. **done = true 的 task 不删**：保留在 tasks 里供回溯。
-6. **cycles 只增不减**：每次为一个 task 消耗了一个 cron 周期后，自增 1。不要清零或减。
-7. **完成一个 task 后改下一个**：做完 index=N 的 task，标 `done: true`，切到 index=N+1（如果还存在且未完成）。
+6. **完成一个 task 后改下一个**：做完 index=N 的 task，标 `done: true`，切到 index=N+1（如果还存在且未完成）。
 
 ## 更新 task（推荐用 bb-plan-update）
 
@@ -47,8 +47,6 @@ bb-plan-update --index=1 --done=true
 bb-plan-update --index=3 --note="卡在第三关"
 bb-plan-update --index=2 --done=true --note="md-check 全过"
 ```
-
-update 不会自动增加 cycles。cycles 是 cron 周期计数，由 agent 在周期开始时手动自增。
 
 ## 编辑示例
 
@@ -63,7 +61,6 @@ update 不会自动增加 cycles。cycles 是 cron 周期计数，由 agent 在�
       "desc": "搭建翻译环境",
       "acceptance": "能在本机运行翻译脚本，输出符合 markdown 格式",
       "done": false,
-      "cycles": 0,
       "note": ""
     }
   ]
@@ -83,7 +80,6 @@ update 不会自动增加 cycles。cycles 是 cron 周期计数，由 agent 在�
       "desc": "搭建翻译环境",
       "acceptance": "能在本机运行翻译脚本，输出符合 markdown 格式",
       "done": true,
-      "cycles": 1,
       "note": "用了 pip install mdit 方案"
     },
     {
@@ -91,7 +87,6 @@ update 不会自动增加 cycles。cycles 是 cron 周期计数，由 agent 在�
       "desc": "翻译第 1-5 章",
       "acceptance": "输出 5 个 .md 文件，md-check 全部通过",
       "done": false,
-      "cycles": 0,
       "note": ""
     }
   ]
