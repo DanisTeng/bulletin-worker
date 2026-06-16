@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-render_skill_md.py — 渲染 SKILL.md
-算法：把 core/self_recognition_part.md 和 core/workflow_part.md 中
-带 $ 符号的表达式替换成 config.json 中同名的配置项，合并输出到 output/SKILL.md。
+core/skill/render.py — 渲染 SKILL.md
+算法：把 skill/ 下 3 个 .md part 文件中带 $ 符号的表达式替换成 config.json 中
+同名的配置项，合并输出到 output/SKILL.md。
 """
 
 import json
@@ -10,8 +10,8 @@ import os
 import re
 import sys
 
-CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CORE_DIR)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "SKILL.md")
@@ -48,7 +48,7 @@ def build_skill_md(config: dict) -> str:
     parts = []
 
     for filename in ["self_recognition_part.md", "tools_description_part.md", "workflow_part.md"]:
-        path = os.path.join(CORE_DIR, filename)
+        path = os.path.join(SCRIPT_DIR, filename)
         if os.path.exists(path):
             with open(path, "r") as f:
                 raw = f.read()

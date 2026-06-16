@@ -57,17 +57,17 @@ mkdir -p "$WORKER_WS" "$BOARD_PATH"
 
 # ── 第 1 步：渲染工具（pyinstaller + sh wrapper）───────────
 echo "📦 [1/3] 打包 agent 工具..."
-python3 "$CORE_DIR/render_agent_tools.py"
+python3 "$CORE_DIR/agent_tools/render.py"
 
 # ── 第 2 步：cron prompt ──────────────────────────
 echo ""
 echo "📜 [2/3] 渲染 cron prompt..."
-python3 "$CORE_DIR/render_prompt.py"
+python3 "$CORE_DIR/prompt/render.py"
 echo ""
 
 # ── 第 3 步：SKILL.md ────────────────────────────
 echo "📖 [3/3] 渲染 SKILL.md..."
-python3 "$CORE_DIR/render_skill_md.py"
+python3 "$CORE_DIR/skill/render.py"
 
 # 部署到工作区
 cp "$OUTPUT_DIR/SKILL.md" "$WORKER_WS/SKILL.md"
@@ -78,7 +78,7 @@ echo "   → PROMPT.md 已部署"
 # ── 第 4 步：任务计划工具 ────────────────────────────
 echo ""
 echo "📋 [4/3] 渲染任务计划工具..."
-python3 "$CORE_DIR/render_task_plan.py"
+python3 "$CORE_DIR/task_plan/render.py"
 
 echo ""
 echo "✅ 安装完成"

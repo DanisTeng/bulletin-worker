@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-render_prompt.py — 渲染 PROMPT.md（cron prompt）
-算法：把 core/prompt.md 中带 $ 符号的表达式替换成 config.json 中同名的配置项，
+core/prompt/render.py — 渲染 PROMPT.md（cron prompt）
+算法：把 core/prompt/prompt.md 中带 $ 符号的表达式替换成 config.json 中同名的配置项，
 输出到 output/PROMPT.md。
 """
 
@@ -10,8 +10,8 @@ import os
 import re
 import sys
 
-CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CORE_DIR)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
 OUTPUT_DIR = os.path.join(ROOT_DIR, "output")
 OUTPUT_PATH = os.path.join(OUTPUT_DIR, "PROMPT.md")
@@ -37,7 +37,7 @@ def render(text: str, config: dict) -> str:
 
 def main():
     config = load_config(CONFIG_PATH)
-    prompt_path = os.path.join(CORE_DIR, "prompt.md")
+    prompt_path = os.path.join(SCRIPT_DIR, "prompt.md")
 
     with open(prompt_path, "r") as f:
         raw = f.read()
