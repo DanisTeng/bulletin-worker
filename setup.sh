@@ -75,6 +75,11 @@ cp "$OUTPUT_DIR/PROMPT.md" "$WORKER_WS/PROMPT.md"
 echo "   → SKILL.md 已部署"
 echo "   → PROMPT.md 已部署"
 
+# ── 第 4 步：任务计划工具 ────────────────────────────
+echo ""
+echo "📋 [4/3] 渲染任务计划工具..."
+python3 "$CORE_DIR/render_task_plan.py"
+
 echo ""
 echo "✅ 安装完成"
 echo "工作区: $WORKER_WS"

@@ -203,6 +203,9 @@ def render_sh_wrappers(
 
     for tool in tools_def:
         name = tool["name"]
+        # bb-plan-* 由 render_task_plan.py 单独处理，这里跳过避免冲突
+        if name.startswith("bb-plan-"):
+            continue
         template = tool["template"]
 
         script = render_template(template, placeholders)

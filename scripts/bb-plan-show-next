@@ -1,5 +1,0 @@
-#!/bin/bash
-# 展示最新一条未完成 task
-set -e
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$SCRIPT_DIR/bb_plan" "$WORKSPACE_DIR/plan/current_plan.json" show-next

@@ -99,13 +99,14 @@ def main():
     workspace_dir = config["worker_workspace"]
     tools_dir = os.path.join(workspace_dir, "tools")
     scripts_dir = os.path.join(workspace_dir, "scripts")
+    plan_dir = os.path.join(workspace_dir, "plan")
+    plan_path = os.path.join(plan_dir, "current_plan.json")
     os.makedirs(tools_dir, exist_ok=True)
     os.makedirs(scripts_dir, exist_ok=True)
     os.makedirs(plan_dir, exist_ok=True)
 
     # ── 占位符 ──
-    plan_dir = os.path.join(workspace_dir, "plan")
-    plan_path = os.path.join(plan_dir, "current_plan.json")
+
 
     placeholders = {
         "$BOARD_DIR": config.get("board_path", ""),
@@ -132,11 +133,17 @@ def main():
     size_str = f"{size / 1024 / 1024:.1f}MB" if size > 1024 * 1024 else f"{size / 1024:.0f}KB"
     print(f"   ✅ bb_plan → {elf_dst} ({size_str})")
 
-    # ── 第 2 步：渲染 sh wrapper ──
-    wrappers = {
-        "bb-plan-validate": "#!/bin/bash\nset -e\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$PLAN_FILE\" validate",
-        "bb-plan-show-next": "#!/bin/bash\nset -e\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$PLAN_FILE\" show-next",
-    }
+    # ── 第 2 步：从 agent_tools_def.json 读取 plan wrapper template ──
+    tools_def_path = os.path.join(CORE_DIR, "agent_tools_def.json")
+    if os.path.exists(tools_def_path):
+        with open(tools_def_path) as f:
+            all_tools = json.load(f)
+    else:
+        all_tools = []
+    plan_tools = [t for t in all_tools if t["name"].startswith("bb-plan-")]
+    if not plan_tools:
+        print("⚠️  agent_tools_def.json 中未找到 bb-plan-* 条目", file=sys.stderr)
+    wrappers = {t["name"]: t["template"] for t in plan_tools}
 
     print()
     print("📜 Shell wrapper:")

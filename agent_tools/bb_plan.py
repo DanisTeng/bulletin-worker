@@ -72,14 +72,9 @@ def _validate_task(task, idx: int) -> list[str]:
         print(f"⚠️  tasks[{idx}]: 额外字段 {sorted(extra)}——agent 自定义？", file=sys.stderr)
 
     # 字段类型与长度
-    for field_path, validate_fn in [
-        ("desc", lambda v: _validate_string(v, f"tasks[{idx}].desc", _DESC_MAX)),
-        ("acceptance", lambda v: _validate_string(v, f"tasks[{idx}].acceptance", _ACCEPTANCE_MAX)),
-        ("note", lambda v: _validate_string(v, f"tasks[{idx}].note", _NOTE_MAX)),
-    ]:
-        if field_path.replace(f"tasks[{idx}].", "") in task:
-            errors.extend(validate_fn(task[field_path.replace(f"tasks[{idx}].", "")]))
-        # else: 已通过 missing 检查覆盖，不重复报
+    for key, max_len in [("desc", _DESC_MAX), ("acceptance", _ACCEPTANCE_MAX), ("note", _NOTE_MAX)]:
+        if key in task:
+            errors.extend(_validate_string(task[key], f"tasks[{idx}].{key}", max_len))
 
     if "done" in task:
         if not isinstance(task["done"], bool):
@@ -92,7 +87,7 @@ def _validate_task(task, idx: int) -> list[str]:
     return errors
 
 
-def validate(plan: dict, path: str = "") -> bool:
+def validate(plan: dict) -> bool:
     """验证 plan 结构。返回 True=通过，False=有错误。"""
     errors = []
 
@@ -140,7 +135,7 @@ def validate(plan: dict, path: str = "") -> bool:
 # ── 展示最新未完成 task ───────────────────────────────────────────
 
 
-def show_next(plan: dict, path: str = ""):
+def show_next(plan: dict):
     """打印最新一条未完成 task + 简要统计。"""
     tasks = plan.get("tasks", [])
 

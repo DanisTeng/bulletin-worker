@@ -2,7 +2,7 @@
 
 ## 文件位置
 
-`$BOARD_DIR/plan.json`
+`$WORKSPACE_DIR/plan/current_plan.json`
 
 ## 顶层结构
 
