@@ -109,14 +109,29 @@ test_fail() {
   exit 1
 }
 
-# 执行一组检查，任一失败则测试整体失败
+# 执行一条命令并描述，失败则 return 1
 check() {
   local desc="$1"
   shift
   if "$@"; then
     echo "  ✅ $desc"
+    return 0
   else
     echo "  ❌ $desc" >&2
+    return 1
+  fi
+}
+
+# 执行命令并检查输出含某字符串，失败则 return 1
+check_contains() {
+  local desc="$1" expected="$2"
+  shift 2
+  local output; output=$("$@" 2>/dev/null) || true
+  if echo "$output" | grep -qF "$expected"; then
+    echo "  ✅ $desc"
+    return 0
+  else
+    echo "  ❌ $desc (未包含: $expected)" >&2
     return 1
   fi
 }

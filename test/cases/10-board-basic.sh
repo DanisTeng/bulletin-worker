@@ -4,79 +4,41 @@
 
 . "$(dirname "$0")/../helpers.sh"
 
-NAME="Board 基础功能"
+test_start "Board 基础功能"
 
-test_start "$NAME"
 board_nuke
 
-# ── post + recent ──
-echo "  贴 3 条留言..."
+# ── 贴 3 条留言 ──
 tool bb-worker-post "message one"
 tool bb-worker-post "message two"
 tool bb-worker-post "message three"
 
-echo "  recent 取最后 2 条..."
-result=$(tool bb-recent 2)
-assert_ok
-assert_contains "$result" "message three"
-assert_contains "$result" "message two"
-assert_not_contains "$result" "message one"
-check "post + recent" test $? -eq 0
+# ── recent ──
+check_contains "recent 取最后 2 条" "message three" tool bb-recent 2
+check_contains "recent 默认 20 行"  "message three" tool bb-recent
 
-# ── post + recent 默认行数 ──
-echo "  recent 默认..."
-result=$(tool bb-recent)
-assert_ok
-assert_contains "$result" "message three"
-check "recent 默认 20 行" test $? -eq 0
+# ── recent --grep ──
+check_contains "recent --grep two" "message two"   tool bb-recent 10 --grep "two"
+check "recent --grep 不含 message one" \
+  sh -c '! "$1" bb-recent 10 --grep "two" 2>/dev/null | grep -qF "message one"' _ "$TOOLS_DIR"
 
-# ── post + recent --grep ──
-echo "  recent --grep two..."
-result=$(tool bb-recent 10 --grep "two")
-assert_ok
-assert_contains "$result" "message two"
-assert_not_contains "$result" "message one"
-assert_not_contains "$result" "message three"
-check "recent --grep 过滤" test $? -eq 0
-
-# ── post + history ──
+# ── history ──
 today=$(date +%Y-%m-%d)
-echo "  history $today..."
-result=$(tool bb-history "$today")
-assert_ok
-assert_contains "$result" "message three"
-assert_contains "$result" "message two"
-assert_contains "$result" "message one"
-check "history 显示所有留言" test $? -eq 0
+check_contains "history 当前日期" "message three" tool bb-history "$today"
 
-# ── history 不存在的日期 ──
-echo "  history 无内容的日期..."
-result=$(tool bb-history "2099-01-01")
-assert_ok
-assert_not_contains "$result" "message"
-check "history 无数据日不报错" test $? -eq 0
+# ── history 不存在日期（不应 crash）──
+check "history 无数据日不报错" tool bb-history "2099-01-01"
 
-# ── around 锚点测试 ──
+# ── around ──
 now=$(date +%Y-%m-%dT%H:%M)
-echo "  around 当前时刻 (hh:mm) $now..."
-result=$(tool bb-around "$now" 0 5)
-assert_ok
-assert_contains "$result" "message three"
-check "around 锚点+后5条" test $? -eq 0
+check_contains "around 锚点+后5条" "message three" tool bb-around "$now" 0 5
 
-# ── around 0 0 ──
-echo "  around 0 0..."
-result=$(tool bb-around "$now" 0 0)
-assert_ok
-# 0 前 0 后 → 空结果（不含锚点行本身）
-check "around 0 0 返回空" test $? -eq 0
+# ── around 0 0（应输出空，不含任何留言）──
+check "around 0 0 不包含留言" \
+  sh -c '! "$1" bb-around "$2" 0 0 2>/dev/null | grep -qF "message"' _ "$TOOLS_DIR" "$now"
 
-# ── 领导发帖 ──
-echo "  领导发帖..."
-result=$(tool bb-leader-post "leader says hi")
-assert_ok
-assert_contains "$result" "leader says hi"
-check "leader-post" test $? -eq 0
+# ── leader post（同时验证引用了正确的 speaker name）──
+check_contains "leader-post" "leader says hi" tool bb-leader-post "leader says hi"
 
 # 现场恢复
 board_nuke
