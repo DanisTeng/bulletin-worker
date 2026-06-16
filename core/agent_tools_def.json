@@ -63,5 +63,10 @@
     "name": "bb-plan-show-next",
     "description": "展示计划书中最新一条未完成 task + 简要统计（总数/已完成/周期消耗）。不会修改 plan.json。用法: bb-plan-show-next",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" show-next"
+  },
+  {
+    "name": "bb-plan-update",
+    "description": "更新计划书中指定编号 task 的状态。用法: bb-plan-update --index=N --done=true/false [--note=\"备注\"]",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" update \"$@\""
   }
 ]

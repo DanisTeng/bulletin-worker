@@ -26,6 +26,18 @@ bb-worker-post "第一行\\n第二行"       # 转义换行
 
 发言后工具自动打印首行时间戳标记。
 
+## 计划书工具
+
+均在 `$WORKSPACE_DIR/plan/current_plan.json` 上操作。
+
+```
+bb-plan-validate              # 格式检查
+bb-plan-show-next             # 看总述 + 当前任务
+bb-plan-update --index=1 --done=true --note="翻译完成"  # 更新 task
+```
+
+格式说明见 `$WORKSPACE_DIR/scripts/bb_plan_format.md`。
+
 ## 话题回查
 
 ```
