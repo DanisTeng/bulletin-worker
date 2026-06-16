@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-render_agent_tools.py — 渲染 agent 工具到工作区
+core/agent_tools/render.py — 渲染 agent 工具到工作区
 
 工作流程：
   1. 用 pyinstaller --onefile 把 agent_tools/*.py 打成独立 ELF
@@ -18,10 +18,10 @@ import stat
 import subprocess
 import sys
 
-CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CORE_DIR)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
-TOOLS_DEF_PATH = os.path.join(CORE_DIR, "agent_tools_def.json")
+TOOLS_DEF_PATH = os.path.join(SCRIPT_DIR, "tools_def.json")
 AGENT_TOOLS_DIR = os.path.join(ROOT_DIR, "agent_tools")
 BUILD_DIR = os.path.join(ROOT_DIR, "tmp", "pyi-build")
 
@@ -203,7 +203,7 @@ def render_sh_wrappers(
 
     for tool in tools_def:
         name = tool["name"]
-        # bb-plan-* 由 render_task_plan.py 单独处理，这里跳过避免冲突
+        # bb-plan-* 由 core/task_plan/render.py 单独处理，这里跳过避免冲突
         if name.startswith("bb-plan-"):
             continue
         template = tool["template"]

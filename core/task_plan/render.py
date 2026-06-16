@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-render_task_plan.py — 渲染任务计划相关文件到工作区
+core/task_plan/render.py — 渲染任务计划相关文件到工作区
 
 工作流程：
   1. 把 agent_tools/bb_plan.py 打成 ELF，部署到 $worker_workspace/tools/
@@ -16,10 +16,10 @@ import stat
 import subprocess
 import sys
 
-CORE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(CORE_DIR)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
-TASK_PLAN_DIR = os.path.join(CORE_DIR, "task_plan")
+TASK_PLAN_DIR = os.path.join(SCRIPT_DIR)
 AGENT_TOOLS_DIR = os.path.join(ROOT_DIR, "agent_tools")
 BUILD_DIR = os.path.join(ROOT_DIR, "tmp", "pyi-build")
 
@@ -134,7 +134,7 @@ def main():
     print(f"   ✅ bb_plan → {elf_dst} ({size_str})")
 
     # ── 第 2 步：从 agent_tools_def.json 读取 plan wrapper template ──
-    tools_def_path = os.path.join(CORE_DIR, "agent_tools_def.json")
+    tools_def_path = os.path.join(ROOT_DIR, "core", "agent_tools", "tools_def.json")
     if os.path.exists(tools_def_path):
         with open(tools_def_path) as f:
             all_tools = json.load(f)
