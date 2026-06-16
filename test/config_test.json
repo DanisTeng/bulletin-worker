@@ -1,0 +1,6 @@
+{
+  "worker_workspace": "/tmp/bb-test-TEMPLATE/workspace",
+  "board_path": "/tmp/bb-test-TEMPLATE/board",
+  "worker_name": "TEST_WORKER",
+  "superior_name": "TEST_LEADER"
+}
