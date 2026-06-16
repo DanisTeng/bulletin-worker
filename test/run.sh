@@ -8,6 +8,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="/tmp/bb-test-$$"
 
+# ── 安全退出：测试中断时恢复 config ──
+cleanup() {
+  cd "$ROOT_DIR"
+  git checkout -- config.json 2>/dev/null || true
+  rm -rf "$TEST_DIR" "/tmp/bb-config-$$.json" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
 # ── 生成测试 config ──
 echo "🧪 生成测试 config..."
 sed "s|TEMPLATE|$$|g" "$ROOT_DIR/test/config_test.json" > /tmp/bb-config-$$.json

@@ -24,63 +24,7 @@ tool() {
   "$TOOLS_DIR/$name" "$@"
 }
 
-# ── 断言 ──
-
-assert_ok() {
-  local code=$?
-  if [ "$code" -ne 0 ]; then
-    echo "  ❌ 期望退出码 0，实际 $code" >&2
-    return 1
-  fi
-}
-
-assert_fail() {
-  local code=$?
-  if [ "$code" -eq 0 ]; then
-    echo "  ❌ 期望非零退出码，实际 0" >&2
-    return 1
-  fi
-}
-
-assert_contains() {
-  local output="$1"
-  local expected="$2"
-  if ! echo "$output" | grep -qF "$expected"; then
-    echo "  ❌ 输出不包含: $expected" >&2
-    echo "    实际输出: $output" >&2
-    return 1
-  fi
-}
-
-assert_not_contains() {
-  local output="$1"
-  local expected="$2"
-  if echo "$output" | grep -qF "$expected"; then
-    echo "  ❌ 输出不应包含: $expected" >&2
-    return 1
-  fi
-}
-
-assert_non_empty() {
-  local output="$1"
-  if [ -z "$output" ]; then
-    echo "  ❌ 输出不应为空" >&2
-    return 1
-  fi
-}
-
 # ── 现场恢复 ──
-
-board_clear() {
-  rm -f "$BOARD_PATH"/*.json "$BOARD_PATH"/*.md "$BOARD_PATH"/*.txt 2>/dev/null
-  # 清空目录后创建空文件以避免 board 工具报错（取决于实现）
-  # bb_board 工具基于文件名日期，仅清理内容
-  for f in "$BOARD_PATH"/*; do
-    if [ -f "$f" ]; then
-      : > "$f"
-    fi
-  done
-}
 
 board_nuke() {
   # 彻底清空 board 目录（删所有文件）
