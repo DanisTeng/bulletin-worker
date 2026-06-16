@@ -1,0 +1,5 @@
+#!/bin/bash
+# 检查计划书格式
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$SCRIPT_DIR/bb_plan" "$WORKSPACE_DIR/plan/current_plan.json" validate
