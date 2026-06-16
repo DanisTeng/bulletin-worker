@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # helpers.sh — 测试公共函数
 # 被 test/cases/*.sh source 使用
+# 路径从项目根目录的 config.json 自动读取
 
-# ── 路径 ──
-TEST_DIR="${1:?test_dir}"
-WORKSPACE_DIR="$TEST_DIR/workspace"
-BOARD_PATH="$TEST_DIR/board"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG="$ROOT_DIR/config.json"
+
+WORKSPACE_DIR="$(python3 -c "import json; print(json.load(open('$CONFIG'))['worker_workspace'])")"
+BOARD_PATH="$(python3 -c "import json; print(json.load(open('$CONFIG'))['board_path'])")"
 TOOLS_DIR="$WORKSPACE_DIR/tools"
+
+if [ ! -d "$TOOLS_DIR" ]; then
+  echo "❌ 工具目录不存在: $TOOLS_DIR" >&2
+  echo "   请先运行 test/run.sh 或 setup.sh" >&2
+  exit 1
+fi
 
 # ── 调用 tool wrapper ──
 # 用法: tool <tool-name> [args...]

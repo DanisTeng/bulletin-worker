@@ -2,7 +2,7 @@
 # 10-board-basic.sh — Board 工具基础功能测试
 # 测试: post → recent, post → history, post → around
 
-. "$(dirname "$0")/../helpers.sh" "$1"
+. "$(dirname "$0")/../helpers.sh"
 
 NAME="Board 基础功能"
 
