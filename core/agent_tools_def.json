@@ -53,5 +53,15 @@
     "name": "bb-around",
     "description": "以指定时间为锚点查留言。用法: bb-around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" around \"$@\""
+  },
+  {
+    "name": "bb-plan-validate",
+    "description": "检查计划书 current_plan.json 格式是否正确。返回格式问题和结构性摘要。用法: bb-plan-validate",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" validate"
+  },
+  {
+    "name": "bb-plan-show-next",
+    "description": "展示计划书中最新一条未完成 task + 简要统计（总数/已完成/周期消耗）。不会修改 plan.json。用法: bb-plan-show-next",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" show-next"
   }
 ]
