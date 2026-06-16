@@ -48,19 +48,20 @@ _REQUIRED_TASK_FIELDS = {"index", "desc", "acceptance", "done", "cycles", "note"
 
 
 def _read_plan(path: str) -> dict:
-    if not os.path.exists(path):
-        return {}
+    """读取 plan.json，返回字典。文件不存在或为空时返回 {}。"""
     try:
         with open(path) as f:
             return json.load(f)
+    except FileNotFoundError:
+        return {}
     except json.JSONDecodeError as e:
         _err(f"JSON 解析失败: {e}")
     except PermissionError:
         _err(f"权限不足: {path}")
-    return {}
 
 
 def _write_plan(path: str, plan: dict):
+    """原子写入 plan.json。"""
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
@@ -73,6 +74,7 @@ def _write_plan(path: str, plan: dict):
 
 
 def _validate_string(val, field_path: str, max_len: int) -> list[str]:
+    """校验字符串字段的类型和长度，返回错误列表。"""
     errors = []
     if not isinstance(val, str):
         errors.append(f"{field_path}: 应为字符串，实际为 {type(val).__name__}")
@@ -82,12 +84,15 @@ def _validate_string(val, field_path: str, max_len: int) -> list[str]:
 
 
 def _validate_task(task, idx: int) -> list[str]:
+    """验证单个 task 的结构、字段完整性和类型。"""
     errors = []
 
+    # 类型检查
     if not isinstance(task, dict):
         errors.append(f"tasks[{idx}]: 应为 object，实际为 {type(task).__name__}")
         return errors
 
+    # 字段完整性
     missing = _REQUIRED_TASK_FIELDS - set(task.keys())
     extra = set(task.keys()) - _REQUIRED_TASK_FIELDS
     if missing:
@@ -95,23 +100,41 @@ def _validate_task(task, idx: int) -> list[str]:
     if extra:
         print(f"⚠️  tasks[{idx}]: 额外字段 {sorted(extra)}——agent 自定义？", file=sys.stderr)
 
+    # 字段类型与长度
     for key, max_len in [("desc", _DESC_MAX), ("acceptance", _ACCEPTANCE_MAX), ("note", _NOTE_MAX)]:
         if key in task:
             errors.extend(_validate_string(task[key], f"tasks[{idx}].{key}", max_len))
 
+    # index 校验
     if "index" in task:
         if not isinstance(task["index"], int):
             errors.append(f"tasks[{idx}].index: 应为整数")
 
+    # done 校验
     if "done" in task:
         if not isinstance(task["done"], bool):
             errors.append(f"tasks[{idx}].done: 应为 boolean，实际为 {type(task['done']).__name__}")
 
+    # cycles 校验
     if "cycles" in task:
         if not isinstance(task["cycles"], int) or task["cycles"] < 0:
-            errors.append(f"tasks[{idx}].cycles: 应为非负整数，实际为 {type(task['cycles']).__name__}")
+            errors.append(f"tasks[{idx}].cycles: 应为非负整数")
 
     return errors
+
+
+def _check_duplicate_indexes(tasks: list) -> list[str]:
+    """检查 tasks 中是否有重复的 index。返回警告列表。"""
+    seen = {}
+    warns = []
+    for i, t in enumerate(tasks):
+        idx = t.get("index")
+        if idx is not None:
+            if idx in seen:
+                warns.append(f"⚠️  重复 index={idx}: tasks[{seen[idx]}] 和 tasks[{i}]")
+            else:
+                seen[idx] = i
+    return warns
 
 
 def _fixup_indexes(plan: dict):
@@ -122,25 +145,31 @@ def _fixup_indexes(plan: dict):
 
 
 def _validate_and_output(plan: dict):
-    """验证 plan，输出结构报告。返回是否通过。"""
+    """验证 plan，输出结构报告。返回 True=通过，False=有错误。"""
     errors = []
 
+    # 顶层必须是 object
     if not isinstance(plan, dict):
         _err(f"plan.json: 顶层应为 object，实际为 {type(plan).__name__}")
 
+    # 顶层字段完整性
     missing_top = _REQUIRED_TOP_LEVEL - set(plan.keys())
     if missing_top:
         errors.append(f"缺少顶层字段 {sorted(missing_top)}")
 
+    # briefing 校验
     if "briefing" in plan:
         errors.extend(_validate_string(plan["briefing"], "briefing", _BRIEFING_MAX))
 
+    # tasks 校验
     if "tasks" in plan:
         if not isinstance(plan["tasks"], list):
             errors.append(f"tasks: 应为 array，实际为 {type(plan['tasks']).__name__}")
         else:
             for i, task in enumerate(plan["tasks"]):
                 errors.extend(_validate_task(task, i))
+            # 重复 index 检查
+            errors.extend(_check_duplicate_indexes(plan["tasks"]))
 
     if errors:
         print(f"📋 plan.json 结构检查失败 ({len(errors)} 个问题):", file=sys.stderr)
@@ -148,6 +177,7 @@ def _validate_and_output(plan: dict):
             print(f"   • {e}", file=sys.stderr)
         return False
 
+    # 通过后打印结构性摘要
     tasks = plan.get("tasks", [])
     done_count = sum(1 for t in tasks if t.get("done"))
     total_cycles = sum(t.get("cycles", 0) for t in tasks)
@@ -169,7 +199,7 @@ def show_next(plan: dict):
     """打印总述 + 最新一条未完成 task + 简要统计。"""
     tasks = plan.get("tasks", [])
 
-    # 总述总是显示
+    # 总述总是显示在开头
     briefing = plan.get("briefing", "")
     if briefing:
         print(f"📌 {briefing}")
@@ -216,6 +246,20 @@ def show_next(plan: dict):
 # ── update ──────────────────────────────────────────────────────
 
 
+def _find_task_by_index(tasks: list, index: int) -> dict | None:
+    """按 index 查找 task。如果有重复 index，返回第一个并打警告。"""
+    found = None
+    warned = False
+    for t in tasks:
+        if t.get("index") == index:
+            if found is not None and not warned:
+                print(f"⚠️  发现重复 index={index}，仅更新第一个匹配的 task", file=sys.stderr)
+                warned = True
+            if found is None:
+                found = t
+    return found
+
+
 def update(plan: dict, path: str, index: int, done: bool | None, note: str | None):
     """更新指定 index 的 task。写回文件。"""
     tasks = plan.get("tasks", [])
@@ -223,13 +267,7 @@ def update(plan: dict, path: str, index: int, done: bool | None, note: str | Non
     if not tasks:
         _err("plan.json 中无 task，无法更新")
 
-    # 找到匹配 index 的 task
-    target = None
-    for t in tasks:
-        if t.get("index") == index:
-            target = t
-            break
-
+    target = _find_task_by_index(tasks, index)
     if target is None:
         _err(f"未找到 index={index} 的 task")
 
@@ -284,26 +322,18 @@ def main():
         if args.done is None and args.note is None:
             _err("update 模式需要 --done 和/或 --note")
 
-    # ── read ──
-    if not os.path.exists(args.path):
-        if args.mode == "validate":
-            _err(f"文件不存在: {args.path}")
-        elif args.mode == "show-next":
-            print("📋 尚无计划书。")
-            sys.exit(_EXIT_OK)
-        elif args.mode == "update":
-            _err(f"文件不存在: {args.path}")
-
+    # ── 读取文件 ──
     plan = _read_plan(args.path)
+
     if not plan:
         if args.mode == "validate":
-            print("📋 plan.json 为空。")
+            print("📋 plan.json 不存在或为空。")
             sys.exit(_EXIT_OK)
         elif args.mode == "show-next":
             print("📋 尚无计划书。")
             sys.exit(_EXIT_OK)
         elif args.mode == "update":
-            _err("plan.json 为空，无法更新")
+            _err("plan.json 为空或不存在，无法更新")
 
     # ── 执行 ──
     if args.mode == "validate":
