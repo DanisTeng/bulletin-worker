@@ -93,5 +93,10 @@
     "name": "bb-worker-post-execute",
     "description": "以 worker 身份发留言，内容前加 [计划执行] 标记。支持 echo 管道和 argv 两种用法。用法同 bb-worker-post",
     "template": "#!/bin/bash\nif [ \"$#\" -gt 0 ]; then\n  exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post --prefix \"[计划执行]\" \"$WORKER_NAME\" \"$@\"\nelse\n  { echo \"[计划执行]\"; cat; } | exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\"\nfi"
+  },
+  {
+    "name": "bb-plan-clear",
+    "description": "删除 current_plan.json，用于任务完结后清理。用法: bb-plan-clear",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" clear"
   }
 ]

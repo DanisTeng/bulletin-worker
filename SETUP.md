@@ -36,7 +36,7 @@ cd bulletin-worker/
 
 | 步骤 | 产出 | 说明 |
 |------|------|------|
-| 1️⃣ 打包 agent 工具 | `$worker_workspace/tools/` | pyinstaller 将 `agent_tools/*.py` 打成独立 ELF，并渲染 shell wrapper（共 13 个） |
+| 1️⃣ 打包 agent 工具 | `$worker_workspace/tools/` | pyinstaller 将 `agent_tools/*.py` 打成独立 ELF，并渲染 shell wrapper（共 14 个） |
 | 2️⃣ 渲染 SKILL.md | `$worker_workspace/SKILL.md` | v2 工作流说明书：四态互斥分流（计划执行/更新计划/新建计划/无任务） |
 | 3️⃣ 渲染 TOOLS_USAGE.md | `$worker_workspace/tools/TOOLS_USAGE.md` | 工具使用说明（agent 从 SKILL.md 中得知此文件位置） |
 | 4️⃣ 部署 v2 工作流脚本 | `$worker_workspace/scripts/` | 子任务级说明：`update_task_plan.md`、`execute_task_plan.md`、`new_task_plan.md` |

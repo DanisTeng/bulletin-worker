@@ -2,7 +2,7 @@
 """
 bb_plan.py — 计划书工具
 
-五种用法：
+六种用法：
 
   1. 格式检查
      bb_plan.py <plan.json> validate
@@ -22,7 +22,11 @@ bb_plan.py — 计划书工具
      从 plan.json 内部读取 name 字段（不可为空），
      拷贝到 plan_archive/ 目录，文件名为 <name>_YYYYMMDD_HHMMSS.json。
 
-  5. 更新 task
+  5. 清理
+     bb_plan.py <plan.json> clear
+     删除当前 plan.json 文件，用于任务完结后清理。
+
+  6. 更新 task
      bb_plan.py <plan.json> update --index=N [--done=true|false] [--note="..."]
      更新指定编号的 task 的完成状态和/或备注。
 """
@@ -232,6 +236,18 @@ def archive(plan_path: str, plan: dict):
     print(f"📦 已归档: {dst}")
 
 
+# ── clear ────────────────────────────────────────────────────────
+
+
+def clear(plan_path: str):
+    """删除当前 plan.json，用于任务完结后清理。"""
+    if os.path.exists(plan_path):
+        os.remove(plan_path)
+        print(f"🗑️  已删除: {plan_path}")
+    else:
+        print(f"ℹ️  plan.json 不存在，无需清理")
+
+
 # ── show-next ─────────────────────────────────────────────────────
 
 
@@ -341,7 +357,7 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("path", help="plan.json 路径")
-    parser.add_argument("mode", choices=["validate", "show-brief", "show-next", "archive", "update"],
+    parser.add_argument("mode", choices=["validate", "show-brief", "show-next", "archive", "clear", "update"],
                         help="操作模式")
     parser.add_argument("--index", type=int, default=None,
                         help="task 编号（从 1 开始），仅 update 模式使用")
@@ -399,6 +415,10 @@ def main():
 
     elif args.mode == "archive":
         archive(args.path, plan)
+        sys.exit(_EXIT_OK)
+
+    elif args.mode == "clear":
+        clear(args.path)
         sys.exit(_EXIT_OK)
 
     elif args.mode == "update":

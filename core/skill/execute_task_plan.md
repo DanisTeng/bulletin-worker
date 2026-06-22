@@ -4,7 +4,7 @@
 - 运行 ./tools/bb-plan-show-next 知悉下个子任务情况
 如果返回结果显示没有剩下的子任务，则：
 - 使用 `./tools/bb-worker-post-execute` 回复留言板内容，说明所有任务已经完成
-- 运行 `./tools/bb-plan-archive` 进行计划书归档，计划名要尽可能防止与其他 plan 文件中的计划混淆
+- 运行 `./tools/bb-plan-archive` 进行完成版的计划书归档
 - 运行 `./tools/bb-set-idle`
 - 跳转至最终步
 否则执行下一步。
