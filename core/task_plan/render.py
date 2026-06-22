@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-core/task_plan/render.py — 渲染任务计划相关文件到工作区
+core/task_plan/render.py — 渲染任务计划 + v2 工作流脚本到工作区
 
 工作流程：
   1. 把 agent_tools/bb_plan.py 打成 ELF，部署到 $worker_workspace/tools/
-  2. 渲染 bb-plan-validate / bb-plan-show-next 的 sh wrapper，部署到 tools/
+  2. 渲染 bb-plan-* 的 sh wrapper，部署到 tools/
   3. 拷贝 bb_plan_format.md 到 $worker_workspace/scripts/
+  4. 拷贝 v2 工作流 md（update_task_plan / execute_task_plan / new_task_plan）到 scripts/
+  5. 拷贝计划书设计文档（task_plan_format / task_plan_strategy）到 scripts/
 """
 
 import json
@@ -165,6 +167,40 @@ def main():
         print(f"\n📝 bb_plan_format.md → {fmt_dst}")
     else:
         print(f"\n⚠️  未找到 {format_md}", file=sys.stderr)
+
+    # ── 第 4 步：拷贝 v2 工作流脚本到 scripts/ ──
+    skill_dir = os.path.join(ROOT_DIR, "core", "skill")
+    v2_files = [
+        ("update_task_plan.md",   "update_task_plan.md"),
+        ("execute_task_plan.md",  "execute_task_plan.md"),
+        ("new_task_plan.md",      "new_task_plan.md"),
+    ]
+    print()
+    print("📋 v2 工作流脚本:")
+    for src_name, dst_name in v2_files:
+        src = os.path.join(skill_dir, src_name)
+        if os.path.exists(src):
+            dst = os.path.join(scripts_dir, dst_name)
+            shutil.copy2(src, dst)
+            print(f"   ✅ {dst_name}")
+        else:
+            print(f"   ⚠️  未找到 {src_name}", file=sys.stderr)
+
+    # ── 第 5 步：拷贝 task_plan 设计文档到 scripts/ ──
+    design_files = [
+        ("task_plan_format.md",   "task_plan_format.md"),
+        ("task_plan_strategy.md", "task_plan_strategy.md"),
+    ]
+    print()
+    print("📋 计划书设计文档:")
+    for src_name, dst_name in design_files:
+        src = os.path.join(TASK_PLAN_DIR, src_name)
+        if os.path.exists(src):
+            dst = os.path.join(scripts_dir, dst_name)
+            shutil.copy2(src, dst)
+            print(f"   ✅ {dst_name}")
+        else:
+            print(f"   ⚠️  未找到 {src_name}", file=sys.stderr)
 
     # ── 清理 ──
     build_dir = os.path.join(BUILD_DIR, "build")
