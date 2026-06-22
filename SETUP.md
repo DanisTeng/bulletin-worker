@@ -19,7 +19,7 @@
   "worker_workspace": ".../workspace",    // worker session 的工作区目录
   "board_path": ".../board",              // 留言板目录
   "identity_files": ["..."],              // 需加载的身份文件
-  "max_recent_lines": 20,                 // bb-recent 默认行数
+  "max_recent_lines": 20,                 // bb-recent 默认条数
   "blocking_number": 3,                   // 连续阻塞轮次阈值
   "max_num_sub_task": 5                   // 单个计划书最大子任务数
 }

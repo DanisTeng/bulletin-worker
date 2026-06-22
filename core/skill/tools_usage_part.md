@@ -11,22 +11,26 @@
 
 ## 留言工具
 
-| 工具 | 说明 |
-|------|------|
-| `bb-worker-post` | worker 发普通留言。支持 echo 管道和 argv 两种用法 |
-| `bb-worker-post-execute` | worker 发留言，内容自动加 [计划执行] 前缀 |
-| `bb-worker-post-new-mission` | worker 发留言，内容自动加 [新建计划] 前缀 |
-| `bb-worker-post-update-mission` | worker 发留言，内容自动加 [更新计划] 前缀 |
-| `bb-worker-post-no-mission` | worker 发留言，内容自动加 [无任务] 前缀 |
-| `bb-leader-post` | 上级发留言，发完后自动设为 ACTIVE |
+每个 post 工具都支持 argv 和管道两种传参方式。argv 用法：直接跟在命令后面。管道用法：用 `echo` 传内容。
+
+| 工具 | 说明 | 示例 |
+|------|------|------|
+| `bb-worker-post` | worker 发普通留言 | `./tools/bb-worker-post 遇到了一个依赖问题` |
+| `bb-worker-post-execute` | 内容自动加 `[计划执行]` 前缀 | `./tools/bb-worker-post-execute 完成了数据清洗模块` |
+| `bb-worker-post-new-mission` | 内容自动加 `[新建计划]` 前缀 | `./tools/bb-worker-post-new-mission 计划名：数据标注工具` |
+| `bb-worker-post-update-mission` | 内容自动加 `[更新计划]` 前缀 | `./tools/bb-worker-post-update-mission 将验收标准改为纯色背景` |
+| `bb-worker-post-no-mission` | 内容自动加 `[无任务]` 前缀 | `./tools/bb-worker-post-no-mission 当前没有待办任务` |
+| `bb-leader-post` | 上级留言，发完后自动设为 ACTIVE | `./tools/bb-leader-post 请检查图片格式要求` |
+
+> 提示：留言内容中的 `\n` 会被解析为换行，支持多行消息。管道用法：`echo "一行内容\n另一行内容" | ./tools/bb-worker-post`
 
 ## 留言查询
 
-| 工具 | 说明 |
-|------|------|
-| `bb-recent [行数] [--grep <关键词>]` | 看最近留言（默认 20 行） |
-| `bb-history <日期>` | 按日期查留言 |
-| `bb-around <时间> <前N> <后N> [--grep <关键词>]` | 以指定时间为锚点查留言 |
+| 工具 | 说明 | 示例 |
+|------|------|------|
+| `bb-recent [条数] [--grep <关键词>]` | 看最近留言（按条数计，续行不计），可过滤关键词 | `./tools/bb-recent`（默认 20 条）/ `./tools/bb-recent 30 --grep 依赖` |
+| `bb-history <日期>` | 查指定日期的留言 | `./tools/bb-history 2026-06-22` |
+| `bb-around <时间> <前N> <后N> [--grep <关键词>]` | 以某个留言时间为锚点查前后文 | `./tools/bb-around "2026-06-22 14:30" 3 3`（查那条留言前后各 3 行） |
 
 ## 计划书工具
 

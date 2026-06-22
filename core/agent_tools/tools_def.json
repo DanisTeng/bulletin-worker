@@ -31,7 +31,7 @@
   },
   {
     "name": "bb-recent",
-    "description": "查看最近留言，默认 20 行。支持 --grep 关键词过滤。用法: bb-recent [行数] [--grep <关键词>]",
+    "description": "查看最近留言，默认 20 条。支持 --grep 关键词过滤。用法: bb-recent [条数] [--grep <关键词>]",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" recent \"$@\""
   },
   {
