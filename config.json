@@ -7,5 +7,7 @@
     "/root/.openclaw/workspace/SOUL.md",
     "/root/.openclaw/workspace/AGENTS.md"
   ],
-  "max_recent_lines": 20
+  "max_recent_lines": 20,
+  "blocking_number": 3,
+  "max_num_sub_task": 5
 }

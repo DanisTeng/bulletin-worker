@@ -20,7 +20,7 @@
 ## Step 4. 尝试构建计划书.
 - 将计划书构建到 `$WORKSPACE_DIR/plan/current_plan.json`
 - 使用 ./tools/bb-plan-format-check 进行检查, 修复格式问题确保格式检查通过.
-- 运行 ./tools/bb-plan-archive 进行计划书归档.
+- 运行 ./tools/bb-plan-archive 进行计划书归档. 计划名要尽可能防止和其它plan文件夹中计划混淆. 
 - 使用 `./tools/bb-worker-post-new-mission` 回复留言板内容.
 - 运行 `./tools/bb-set-active`
 
