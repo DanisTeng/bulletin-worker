@@ -4,6 +4,7 @@
 是一个 json 文件：
 ```json
 {
+  "name": "...",
   "briefing": "...",
   "tasks": [
     { "index": 1, "desc": "...", "acceptance": "...", "done": false, "note": "" }
@@ -15,6 +16,7 @@
 
 | 字段 | 类型 | 约束 |
 |------|------|------|
+| `name` | string | **必填**。计划名，30 字，简明扼要 |
 | `briefing` | string | **必填**。任务总述，≤200 字。含任务背景、发布时间、目的、行为约束。 |
 | `tasks` | array | **必填**。task 列表，不可为空。 |
 | `tasks[].index` | number | **必填**。编号，从 1 开始，与列表顺序一致，用于标识。 |

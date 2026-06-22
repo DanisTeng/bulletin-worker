@@ -71,8 +71,8 @@
   },
   {
     "name": "bb-plan-archive",
-    "description": "归档当前计划书到 plan_archive/ 目录。用法: bb-plan-archive <计划名>",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" archive \"$@\""
+    "description": "归档当前计划书到 plan_archive/ 目录，计划名从 plan.json 内部 name 字段读取。用法: bb-plan-archive",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" archive"
   },
   {
     "name": "bb-worker-post-no-mission",

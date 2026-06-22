@@ -2,7 +2,7 @@
 """
 bb_plan.py — 计划书工具
 
-六种用法：
+五种用法：
 
   1. 格式检查
      bb_plan.py <plan.json> validate
@@ -18,9 +18,9 @@ bb_plan.py — 计划书工具
      如果无未完成 task 或 plan 不存在，打印合适消息并返回 0。
 
   4. 归档
-     bb_plan.py <plan.json> archive <计划名>
-     将当前 plan.json 拷贝到 plan_archive/ 目录，
-     文件名为 <计划名>_YYYYMMDD_HHMMSS.json。
+     bb_plan.py <plan.json> archive
+     从 plan.json 内部读取 name 字段（不可为空），
+     拷贝到 plan_archive/ 目录，文件名为 <name>_YYYYMMDD_HHMMSS.json。
 
   5. 更新 task
      bb_plan.py <plan.json> update --index=N [--done=true|false] [--note="..."]
@@ -217,13 +217,14 @@ def show_brief(plan: dict):
 # ── archive ─────────────────────────────────────────────────────
 
 
-def archive(plan_path: str, plan_name: str):
-    """将当前计划书拷贝到 plan_archive/ 目录，文件名用 <计划名>_<时间戳>.json。"""
+def archive(plan_path: str, plan: dict):
+    """将当前计划书拷贝到 plan_archive/ 目录，文件名用 <name>_<时间戳>.json。
+    name 从 plan 中的 name 字段读取，不可为空。"""
     workspace_dir = os.path.dirname(os.path.dirname(plan_path))
     archive_dir = os.path.join(workspace_dir, "plan_archive")
-    plan = _read_plan(plan_path)
-    if not plan:
-        _err("plan.json 为空或不存在，无法归档")
+    plan_name = plan.get("name", "")
+    if not plan_name:
+        _err("plan.json 缺少 name 字段，无法归档")
     os.makedirs(archive_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dst = os.path.join(archive_dir, f"{plan_name}_{ts}.json")
@@ -350,7 +351,7 @@ def main():
     parser.add_argument("--note", type=str, default=None,
                         help="添加备注，仅 update 模式使用")
     parser.add_argument("name", type=str, nargs="?",
-                        help="计划名，仅 archive 模式使用")
+                        help="（已废弃）plan name 从文件内部读取")
 
     args = parser.parse_args()
 
@@ -360,11 +361,14 @@ def main():
             _err("update 模式需要 --index")
         if args.done is None and args.note is None:
             _err("update 模式需要 --done 和/或 --note")
-    if args.mode == "archive":
-        if not args.name:
-            _err("archive 模式需要计划名，用法: bb-plan-archive <计划名>")
 
     # ── 读取文件 ──
+    plan = _read_plan(args.path)
+
+    # archive 校验依赖 plan 内容
+    if args.mode == "archive":
+        if not plan or not plan.get("name"):
+            _err("plan.json 缺少 name 字段，无法归档")
     plan = _read_plan(args.path)
 
     if not plan:
@@ -394,7 +398,7 @@ def main():
         sys.exit(_EXIT_OK)
 
     elif args.mode == "archive":
-        archive(args.path, args.name)
+        archive(args.path, plan)
         sys.exit(_EXIT_OK)
 
     elif args.mode == "update":
