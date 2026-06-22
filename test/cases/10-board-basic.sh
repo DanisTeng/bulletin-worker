@@ -15,7 +15,7 @@ tool bb-worker-post "message three"
 
 # ── recent ──
 check_contains "recent 取最后 2 条" "message three" tool bb-recent 2
-check_contains "recent 默认 20 行"  "message three" tool bb-recent
+check_contains "recent 默认 20 条"  "message three" tool bb-recent
 
 # ── recent --grep ──
 check_contains "recent --grep two" "message two"   tool bb-recent 10 --grep "two"

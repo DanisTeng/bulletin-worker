@@ -10,7 +10,7 @@
 | `bb-set-idle` | 设为 IDLE（空闲） |
 | `bb-worker-post` | 以 worker 身份留言。支持 echo 管道和 argv 两种用法 |
 | `bb-leader-post` | 以领导身份留言。用法同上 |
-| `bb-recent [行数] [--grep <关键词>]` | 看最近留言（默认 20 行），支持关键词过滤 |
+| `bb-recent [条数] [--grep <关键词>]` | 看最近留言（默认 20 条），支持关键词过滤 |
 | `bb-history <日期>` | 按日期查留言 |
 | `bb-around <时间> <前N> <后N> [--grep <关键词>]` | 以指定时间为锚点，往前/往后取若干条留言 |
 

@@ -14,8 +14,8 @@ bb_board.py — 留言板读写工具
   cat report.md | bb_board.py <board_dir> post <发言人>
   printf "第一行\n第二行" | bb_board.py <board_dir> post <发言人>
 
-  # 看最近的留言（默认 20 行），支持关键词过滤
-  bb_board.py <board_dir> recent [行数] [--grep <关键词>]
+  # 看最近的留言（默认 20 条），支持关键词过滤
+  bb_board.py <board_dir> recent [条数] [--grep <关键词>]
 
   # 按日期查留言
   bb_board.py <board_dir> history <YYYY-MM-DD> [YYYY-MM-DD]
@@ -27,9 +27,9 @@ bb_board.py — 留言板读写工具
   echo "翻译 /docs/manual.md" | bb_board.py /tmp/board post Danis
   printf "进度更新\n已完成第1章" | bb_board.py /tmp/board post James
   cat status.txt | bb_board.py /tmp/board post James
-  bb_board.py /tmp/board recent                    # 最近 20 行
-  bb_board.py /tmp/board recent 50                 # 最近 50 行
-  bb_board.py /tmp/board recent 50 --grep "翻译"   # 最近 50 行中只显示含"翻译"的
+  bb_board.py /tmp/board recent                    # 最近 20 条留言（含续行）
+  bb_board.py /tmp/board recent 50                 # 最近 50 条留言
+  bb_board.py /tmp/board recent 50 --grep "翻译"   # 最近 50 条中只显示含"翻译"的
   bb_board.py /tmp/board history 2026-06-08
   bb_board.py /tmp/board history 2026-06-01 2026-06-08
   bb_board.py /tmp/board around 2026-06-15T14:00 10 5               # 14:00 前10后5条
@@ -399,28 +399,44 @@ def _read_stdin() -> str:
 def recent(board_dir: Path, n: int = 20) -> list[str]:
     """
     读最近的 N 条留言，跨多个旧文件聚合。
-    从最新的文件开始倒着读，凑够 N 行即止。
+    计数方式：N 指留言条数（有时间戳的行），续行不计入。
+    从最新的文件开始倒着读，凑够 N 条留言即止。
     返回按时间顺序排列的行列表（最新的在末尾）。
+    如果留言总数不足 N，则返回全部留言。
     """
     if n < 1:
         return []
 
     files = _sorted_board_files(board_dir)
 
-    # 从最新的文件倒序读，收集 N 行
+    # 从最新的文件倒序读，收集全部原始行 + 计数 timed_lines
     all_lines: list[str] = []
+    ts_seen = 0
     for fp in reversed(files):
-        lines = _read_board_file(fp)
-        if not lines:
+        raw_lines = _read_board_file(fp)
+        if not raw_lines:
             continue
-        all_lines = lines + all_lines
-        if len(all_lines) >= n:
+        all_lines = raw_lines + all_lines
+        for line in raw_lines:
+            if _parse_line_ts(line) is not None:
+                ts_seen += 1
+        if ts_seen >= n:
             break
 
     if not all_lines:
         return []
 
-    return all_lines[-n:]
+    # 从末尾倒着数，确定最后 n 条留言的起始位置
+    cut = 0
+    ts_found = 0
+    for i in range(len(all_lines) - 1, -1, -1):
+        if _parse_line_ts(all_lines[i]) is not None:
+            ts_found += 1
+            if ts_found == n:
+                cut = i
+                break
+
+    return all_lines[cut:]
 
 
 def history(
@@ -564,9 +580,9 @@ def _cmd_recent(path: Path, args: list[str]):
         try:
             n = int(args[0])
         except ValueError:
-            _err(f"行数必须为整数: {args[0]}")
+            _err(f"条数必须为整数: {args[0]}")
         if n < 1:
-            _err("行数必须大于 0")
+            _err("条数必须大于 0")
 
     lines = recent(path, n)
     lines = _grep_lines(lines, grep)
