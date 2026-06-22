@@ -41,7 +41,7 @@ def render_part(text: str, config: dict) -> str:
         # Leave unreplaced variables as-is (fail softly so user can see what's missing)
         return m.group(0)
 
-    return re.sub(r"\$([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
+    return re.sub(r"\$" r"([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
 
 
 def build_skill_md(config: dict) -> str:
