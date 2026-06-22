@@ -105,7 +105,7 @@ def render_md(content: str, config: dict) -> str:
                 return "\n".join(val) if val else ""
             return str(val)
         return m.group(0)
-    return re.sub(r"\$" r"([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, content)
+    return re.sub(r"\x24([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, content)
 
 
 def _deploy_rendered_md(src: str, dst: str, config: dict):

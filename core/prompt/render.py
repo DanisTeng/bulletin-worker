@@ -32,7 +32,7 @@ def render(text: str, config: dict) -> str:
             return str(val)
         return m.group(0)
 
-    return re.sub(r"\$" r"([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
+    return re.sub(r"\x24([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
 
 
 def main():
