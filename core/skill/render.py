@@ -47,7 +47,7 @@ def render_part(text: str, config: dict) -> str:
 def build_skill_md(config: dict) -> str:
     parts = []
 
-    for filename in ["self_recognition_part.md", "tools_description_part.md", "workflow_part.md"]:
+    for filename in ["self_recognition_part.md", "tools_usage_part.md", "workflow_v2_part.md"]:
         path = os.path.join(SCRIPT_DIR, filename)
         if os.path.exists(path):
             with open(path, "r") as f:
@@ -56,6 +56,21 @@ def build_skill_md(config: dict) -> str:
             parts.append("\n\n")
 
     return "".join(parts).strip() + "\n"
+
+
+def render_tools_usage(config: dict, dst_dir: str):
+    """渲染 tools_usage_part.md 到指定目录下的 TOOLS_USAGE.md。"""
+    usage_path = os.path.join(SCRIPT_DIR, "tools_usage_part.md")
+    if not os.path.exists(usage_path):
+        print("   ⚠️  tools_usage_part.md 不存在，跳过")
+        return
+    with open(usage_path) as f:
+        content = render_part(f.read(), config)
+    os.makedirs(dst_dir, exist_ok=True)
+    dst = os.path.join(dst_dir, "TOOLS_USAGE.md")
+    with open(dst, "w") as f:
+        f.write(content)
+    print(f"   → TOOLS_USAGE.md 已渲染")
 
 
 def main():

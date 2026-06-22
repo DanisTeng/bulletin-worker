@@ -72,8 +72,10 @@ python3 "$CORE_DIR/skill/render.py"
 # 部署到工作区
 cp "$OUTPUT_DIR/SKILL.md" "$WORKER_WS/SKILL.md"
 cp "$OUTPUT_DIR/PROMPT.md" "$WORKER_WS/PROMPT.md"
+python3 -c "import sys; sys.path.insert(0, '$CORE_DIR'); from skill.render import load_config, render_tools_usage; c = load_config('$CORE_DIR/../config.json'); render_tools_usage(c, '$WORKER_WS/tools')"
 echo "   → SKILL.md 已部署"
 echo "   → PROMPT.md 已部署"
+echo "   → TOOLS_USAGE.md 已部署"
 
 # ── 第 4 步：任务计划工具 ────────────────────────────
 echo ""

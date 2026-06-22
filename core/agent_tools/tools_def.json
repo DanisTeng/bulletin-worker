@@ -68,5 +68,40 @@
     "name": "bb-plan-update",
     "description": "更新计划书中指定编号 task 的状态。用法: bb-plan-update --index=N --done=true/false [--note=\"备注\"]",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" update \"$@\""
+  },
+  {
+    "name": "bb-plan-show-brief",
+    "description": "展示计划书概要（briefing + 已完成/未完成统计 + 当前未完成 task index）。用法: bb-plan-show-brief",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" show-brief"
+  },
+  {
+    "name": "bb-plan-format-check",
+    "description": "检查计划书格式是否合法（JSON schema + 字段约束 + index 自动对齐）。用法: bb-plan-format-check",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" validate"
+  },
+  {
+    "name": "bb-plan-archive",
+    "description": "归档当前计划书到 plan_archive/ 目录。用法: bb-plan-archive <计划名>",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_plan\" \"$WORKSPACE_DIR/plan/current_plan.json\" archive \"$@\""
+  },
+  {
+    "name": "bb-worker-post-no-mission",
+    "description": "以 worker 身份发留言，内容前加 [无任务] 标记。支持 echo 管道和 argv 两种用法。用法同 bb-worker-post",
+    "template": "#!/bin/bash\nif [ \"$#\" -gt 0 ]; then\n  exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post --prefix \"[无任务]\" \"$WORKER_NAME\" \"$@\"\nelse\n  { echo \"[无任务]\"; cat; } | exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\"\nfi"
+  },
+  {
+    "name": "bb-worker-post-new-mission",
+    "description": "以 worker 身份发留言，内容前加 [新建计划] 标记。支持 echo 管道和 argv 两种用法。用法同 bb-worker-post",
+    "template": "#!/bin/bash\nif [ \"$#\" -gt 0 ]; then\n  exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post --prefix \"[新建计划]\" \"$WORKER_NAME\" \"$@\"\nelse\n  { echo \"[新建计划]\"; cat; } | exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\"\nfi"
+  },
+  {
+    "name": "bb-worker-post-update-mission",
+    "description": "以 worker 身份发留言，内容前加 [更新计划] 标记。支持 echo 管道和 argv 两种用法。用法同 bb-worker-post",
+    "template": "#!/bin/bash\nif [ \"$#\" -gt 0 ]; then\n  exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post --prefix \"[更新计划]\" \"$WORKER_NAME\" \"$@\"\nelse\n  { echo \"[更新计划]\"; cat; } | exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\"\nfi"
+  },
+  {
+    "name": "bb-worker-post-execute",
+    "description": "以 worker 身份发留言，内容前加 [计划执行] 标记。支持 echo 管道和 argv 两种用法。用法同 bb-worker-post",
+    "template": "#!/bin/bash\nif [ \"$#\" -gt 0 ]; then\n  exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post --prefix \"[计划执行]\" \"$WORKER_NAME\" \"$@\"\nelse\n  { echo \"[计划执行]\"; cat; } | exec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\"\nfi"
   }
 ]

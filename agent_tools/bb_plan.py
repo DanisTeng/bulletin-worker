@@ -2,18 +2,27 @@
 """
 bb_plan.py — 计划书工具
 
-三种用法：
+六种用法：
 
   1. 格式检查
      bb_plan.py <plan.json> validate
      返回 0（格式正确，打印结构性摘要）或 1（格式错误，打印错误原因）
 
-  2. 展示状态
+  2. 展示概要
+     bb_plan.py <plan.json> show-brief
+     只打印总述 + 统计摘要（已完成/待完成数量），不打印具体 task。
+
+  3. 展示状态
      bb_plan.py <plan.json> show-next
      展示总述 + 最新一条未完成 task + 简要统计。
      如果无未完成 task 或 plan 不存在，打印合适消息并返回 0。
 
-  3. 更新 task
+  4. 归档
+     bb_plan.py <plan.json> archive <计划名>
+     将当前 plan.json 拷贝到 plan_archive/ 目录，
+     文件名为 <计划名>_YYYYMMDD_HHMMSS.json。
+
+  5. 更新 task
      bb_plan.py <plan.json> update --index=N [--done=true|false] [--note="..."]
      更新指定编号的 task 的完成状态和/或备注。
 """
@@ -21,7 +30,9 @@ bb_plan.py — 计划书工具
 import argparse
 import json
 import os
+import shutil
 import sys
+from datetime import datetime
 
 
 _EXIT_OK = 0
@@ -186,6 +197,40 @@ def _validate_and_output(plan: dict):
     return True
 
 
+# ── show-brief ──────────────────────────────────────────────────
+
+
+def show_brief(plan: dict):
+    """只打印总述 + 进度统计，不打印具体 task 细节。"""
+    tasks = plan.get("tasks", [])
+    briefing = plan.get("briefing", "")
+    if briefing:
+        print(f"📌 {briefing}")
+        print()
+    if not tasks:
+        print("📋 plan.json 中无 task。")
+        return
+    done_count = sum(1 for t in tasks if t.get("done"))
+    print(f"📊 进度: {len(tasks)} tasks | ✅ {done_count} 完成 | ⏳ {len(tasks) - done_count} 待完成")
+
+
+# ── archive ─────────────────────────────────────────────────────
+
+
+def archive(plan_path: str, plan_name: str):
+    """将当前计划书拷贝到 plan_archive/ 目录，文件名用 <计划名>_<时间戳>.json。"""
+    workspace_dir = os.path.dirname(os.path.dirname(plan_path))
+    archive_dir = os.path.join(workspace_dir, "plan_archive")
+    plan = _read_plan(plan_path)
+    if not plan:
+        _err("plan.json 为空或不存在，无法归档")
+    os.makedirs(archive_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dst = os.path.join(archive_dir, f"{plan_name}_{ts}.json")
+    shutil.copy2(plan_path, dst)
+    print(f"📦 已归档: {dst}")
+
+
 # ── show-next ─────────────────────────────────────────────────────
 
 
@@ -290,12 +335,12 @@ def update(plan: dict, path: str, index: int, done: bool | None, note: str | Non
 
 def main():
     parser = argparse.ArgumentParser(
-        description="计划书工具 — validate / show-next / update",
+        description="计划书工具 — validate / show-brief / show-next / archive / update",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     parser.add_argument("path", help="plan.json 路径")
-    parser.add_argument("mode", choices=["validate", "show-next", "update"],
+    parser.add_argument("mode", choices=["validate", "show-brief", "show-next", "archive", "update"],
                         help="操作模式")
     parser.add_argument("--index", type=int, default=None,
                         help="task 编号（从 1 开始），仅 update 模式使用")
@@ -304,15 +349,20 @@ def main():
                         help="标记完成状态，仅 update 模式使用")
     parser.add_argument("--note", type=str, default=None,
                         help="添加备注，仅 update 模式使用")
+    parser.add_argument("name", type=str, nargs="?",
+                        help="计划名，仅 archive 模式使用")
 
     args = parser.parse_args()
 
-    # ── 校验 update 参数 ──
+    # ── 校验参数 ──
     if args.mode == "update":
         if args.index is None:
             _err("update 模式需要 --index")
         if args.done is None and args.note is None:
             _err("update 模式需要 --done 和/或 --note")
+    if args.mode == "archive":
+        if not args.name:
+            _err("archive 模式需要计划名，用法: bb-plan-archive <计划名>")
 
     # ── 读取文件 ──
     plan = _read_plan(args.path)
@@ -321,8 +371,11 @@ def main():
         if args.mode == "validate":
             print("📋 plan.json 不存在或为空。")
             sys.exit(_EXIT_OK)
-        elif args.mode == "show-next":
+        elif args.mode in ("show-brief", "show-next"):
             print("📋 尚无计划书。")
+            sys.exit(_EXIT_OK)
+        elif args.mode == "archive":
+            print("📋 尚无计划书，无需归档。")
             sys.exit(_EXIT_OK)
         elif args.mode == "update":
             _err("plan.json 为空或不存在，无法更新")
@@ -332,8 +385,16 @@ def main():
         ok = _validate_and_output(plan)
         sys.exit(_EXIT_OK if ok else _EXIT_ERR)
 
+    elif args.mode == "show-brief":
+        show_brief(plan)
+        sys.exit(_EXIT_OK)
+
     elif args.mode == "show-next":
         show_next(plan)
+        sys.exit(_EXIT_OK)
+
+    elif args.mode == "archive":
+        archive(args.path, args.name)
         sys.exit(_EXIT_OK)
 
     elif args.mode == "update":
