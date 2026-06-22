@@ -27,8 +27,6 @@
 | `tasks[].done` | boolean | **必填**。`true` 已完成，`false` 未完成。 |
 | `tasks[].note` | string | **必填**。备注，≤100 字，无内容则空字符串 `""`。 |
 
-> cycles 字段已移除。board 留言记录代替了周期计数。需要回溯执行记录用 `bb-recent --grep`。
-
 ## 编辑规则
 
 1. **index 自动维护**：`validate` 模式下会自动按列表顺序重写全部 index（从 1 开始）。不要手动改 index。
