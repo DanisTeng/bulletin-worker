@@ -8,8 +8,6 @@
 | `bb-set-active` | 设为 ACTIVE（工作中） |
 | `bb-set-busy` | 设为 BUSY（忙碌中，防干扰） |
 | `bb-set-idle` | 设为 IDLE（空闲） |
-| `bb-get-mission` | 看当前任务描述 |
-| `bb-set-mission <描述>` | 记录当前任务 |
 
 ## 留言工具
 

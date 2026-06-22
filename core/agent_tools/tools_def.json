@@ -20,16 +20,6 @@
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" IDLE"
   },
   {
-    "name": "bb-set-mission",
-    "description": "设置任务描述。用法: bb-set-mission <任务描述>",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" -f mission \"$@\""
-  },
-  {
-    "name": "bb-get-mission",
-    "description": "获取当前任务描述",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" -f mission"
-  },
-  {
     "name": "bb-worker-post",
     "description": "以 worker 身份发留言。支持 echo 管道和 argv 两种用法。用法: echo <内容> | bb-worker-post 或 bb-worker-post <内容>",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" post \"$WORKER_NAME\" \"$@\""

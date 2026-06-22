@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-core/task_plan/render.py — 渲染任务计划 + v2 工作流脚本到工作区
+core/task_plan/render.py — 渲染任务计划 + v2 工作流到工作区
 
 工作流程：
   1. 把 agent_tools/bb_plan.py 打成 ELF，部署到 $worker_workspace/tools/
   2. 渲染 bb-plan-* 的 sh wrapper，部署到 tools/
-  3. 拷贝 bb_plan_format.md 到 $worker_workspace/scripts/
-  4. 拷贝 v2 工作流 md（update_task_plan / execute_task_plan / new_task_plan）到 scripts/
-  5. 拷贝计划书设计文档（task_plan_format / task_plan_strategy）到 scripts/
+  3. 部署 v2 工作流 md（update_task_plan / execute_task_plan / new_task_plan）到 scripts/
+  4. 部署计划书设计文档（task_plan_format / task_plan_strategy）到 scripts/
+  5. 创建 data/ 目录
 """
 
 import json
@@ -186,16 +186,7 @@ def main():
         status = "✅" if not unfilled else f"⚠️  未替换: {unfilled}"
         print(f"   {status} {name} → {dst}")
 
-    # ── 第 3 步：拷贝格式说明 MD ──
-    format_md = os.path.join(TASK_PLAN_DIR, "bb_plan_format.md")
-    if os.path.exists(format_md):
-        fmt_dst = os.path.join(scripts_dir, "bb_plan_format.md")
-        shutil.copy2(format_md, fmt_dst)
-        print(f"\n📝 bb_plan_format.md → {fmt_dst}")
-    else:
-        print(f"\n⚠️  未找到 {format_md}", file=sys.stderr)
-
-    # ── 第 4 步：拷贝 v2 工作流脚本到 scripts/ ──
+    # ── 第 3 步：部署 v2 工作流脚本到 scripts/ ──
     skill_dir = os.path.join(ROOT_DIR, "core", "skill")
     v2_files = [
         ("update_task_plan.md",   "update_task_plan.md"),
@@ -212,7 +203,7 @@ def main():
         else:
             print(f"   ⚠️  未找到 {src_name}", file=sys.stderr)
 
-    # ── 第 5 步：拷贝计划书设计文档到 scripts/ ──
+    # ── 第 4 步：部署计划书设计文档到 scripts/ ──
     design_files = [
         ("task_plan_format.md",   "task_plan_format.md"),
         ("task_plan_strategy.md", "task_plan_strategy.md"),
@@ -226,6 +217,12 @@ def main():
             print(f"   ✅ {dst_name}")
         else:
             print(f"   ⚠️  未找到 {src_name}", file=sys.stderr)
+
+    # ── 第 5 步：创建 data/ 目录 ──
+    data_dir = os.path.join(workspace_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    print()
+    print("📁 data/ 目录已创建")
 
     # ── 清理 ──
     build_dir = os.path.join(BUILD_DIR, "build")
