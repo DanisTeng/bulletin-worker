@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-core/skill/render.py — 渲染 SKILL.md
-算法：把 skill/ 下 3 个 .md part 文件中带 $ 符号的表达式替换成 config.json 中
-同名的配置项，合并输出到 output/SKILL.md。
+core/skill/render.py — 渲染 SKILL.md (v2 链路)
+算法：把 skill/ 下 workflow_v2_part.md 带 $ 符号的表达式替换成 config.json 中
+同名的配置项，输出到 output/SKILL.md。
+
+额外功能：
+  - render_tools_usage(): 渲染 tools_usage_part.md 到 $worker_workspace/tools/TOOLS_USAGE.md
 """
 
 import json
@@ -41,13 +44,13 @@ def render_part(text: str, config: dict) -> str:
         # Leave unreplaced variables as-is (fail softly so user can see what's missing)
         return m.group(0)
 
-    return re.sub(r"\$([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
+    return re.sub(r"\x24([a-zA-Z_][a-zA-Z0-9_.]*)", replacer, text)
 
 
 def build_skill_md(config: dict) -> str:
     parts = []
 
-    for filename in ["self_recognition_part.md", "tools_description_part.md", "workflow_part.md"]:
+    for filename in ["workflow_v2_part.md"]:
         path = os.path.join(SCRIPT_DIR, filename)
         if os.path.exists(path):
             with open(path, "r") as f:
@@ -56,6 +59,21 @@ def build_skill_md(config: dict) -> str:
             parts.append("\n\n")
 
     return "".join(parts).strip() + "\n"
+
+
+def render_tools_usage(config: dict, dst_dir: str):
+    """渲染 tools_usage_part.md 到指定目录下的 TOOLS_USAGE.md。"""
+    usage_path = os.path.join(SCRIPT_DIR, "tools_usage_part.md")
+    if not os.path.exists(usage_path):
+        print("   ⚠️  tools_usage_part.md 不存在，跳过")
+        return
+    with open(usage_path) as f:
+        content = render_part(f.read(), config)
+    os.makedirs(dst_dir, exist_ok=True)
+    dst = os.path.join(dst_dir, "TOOLS_USAGE.md")
+    with open(dst, "w") as f:
+        f.write(content)
+    print(f"   → TOOLS_USAGE.md 已渲染")
 
 
 def main():

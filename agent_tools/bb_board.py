@@ -491,20 +491,43 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
 
 
 def _cmd_post(path: Path, args: list[str]):
-    """处理 post 子命令：发留言。内容优先从 argv 取，否则从 stdin 读。"""
-    if len(args) < 1:
-        _err("用法: echo <内容> | bb_board.py <board_dir> post <发言人>\n"
-             "       bb_board.py <board_dir> post <发言人> <内容>")
+    """处理 post 子命令：发留言。支持 --prefix 在内容前加标记。
 
-    speaker = args[0]
+    参数格式：
+      bb_board.py <board_dir> post [--prefix <标记>] <发言人> [<内容>]
+    """
+    prefix = None
+    remaining = []
+    skip_next = False
+    for i, a in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--prefix":
+            if i + 1 < len(args):
+                prefix = args[i + 1]
+                skip_next = True
+            else:
+                _err("--prefix 后面需要跟标记文字")
+        else:
+            remaining.append(a)
 
-    if len(args) >= 2:
-        content = " ".join(args[1:])
+    if len(remaining) < 1:
+        _err("用法: echo <内容> | bb_board.py <board_dir> post [--prefix <标记>] <发言人>\n"
+             "       bb_board.py <board_dir> post [--prefix <标记>] <发言人> <内容>")
+
+    speaker = remaining[0]
+
+    if len(remaining) >= 2:
+        content = " ".join(remaining[1:])
         content = content.replace("\\n", "\n")
     else:
         content = _read_stdin()
         if not content:
             _err("内容不能为空，请通过 stdin 或 argv 传入")
+
+    if prefix:
+        content = f"{prefix} {content}"
 
     first_line = post(path, speaker, content)
     print(first_line)

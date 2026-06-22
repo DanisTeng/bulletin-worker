@@ -72,13 +72,21 @@ python3 "$CORE_DIR/skill/render.py"
 # 部署到工作区
 cp "$OUTPUT_DIR/SKILL.md" "$WORKER_WS/SKILL.md"
 cp "$OUTPUT_DIR/PROMPT.md" "$WORKER_WS/PROMPT.md"
+python3 -c "import sys; sys.path.insert(0, '$CORE_DIR'); from skill.render import load_config, render_tools_usage; c = load_config('$CORE_DIR/../config.json'); render_tools_usage(c, '$WORKER_WS/tools')"
 echo "   → SKILL.md 已部署"
 echo "   → PROMPT.md 已部署"
+echo "   → TOOLS_USAGE.md 已部署"
 
 # ── 第 4 步：任务计划工具 ────────────────────────────
 echo ""
 echo "📋 [4/3] 渲染任务计划工具..."
 python3 "$CORE_DIR/task_plan/render.py"
+
+# ── 第 5 步：初始化状态与目录 ──────────────────────────
+echo ""
+echo "🎯 [5/3] 初始化状态..."
+python3 -c "import json; json.dump({'status': 'IDLE'}, open('$BOARD_PATH/status.json', 'w'))"
+echo "   → 状态已初始化为 IDLE"
 
 echo ""
 echo "✅ 安装完成"
