@@ -224,6 +224,11 @@ def main():
     print()
     print("📁 data/ 目录已创建")
 
+    # ── 第 5.1 步：创建 plan_archive/ 目录 ──
+    archive_dir = os.path.join(workspace_dir, "plan_archive")
+    os.makedirs(archive_dir, exist_ok=True)
+    print("📁 plan_archive/ 目录已创建")
+
     # ── 清理 ──
     build_dir = os.path.join(BUILD_DIR, "build")
     if os.path.isdir(build_dir):

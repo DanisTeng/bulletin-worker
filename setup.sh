@@ -82,6 +82,12 @@ echo ""
 echo "📋 [4/3] 渲染任务计划工具..."
 python3 "$CORE_DIR/task_plan/render.py"
 
+# ── 第 5 步：初始化状态与目录 ──────────────────────────
+echo ""
+echo "🎯 [5/3] 初始化状态..."
+python3 -c "import json; json.dump({'status': 'IDLE'}, open('$BOARD_PATH/status.json', 'w'))"
+echo "   → 状态已初始化为 IDLE"
+
 echo ""
 echo "✅ 安装完成"
 echo "工作区: $WORKER_WS"
