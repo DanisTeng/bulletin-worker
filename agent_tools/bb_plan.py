@@ -252,23 +252,14 @@ def clear(plan_path: str):
 
 
 def show_next(plan: dict):
-    """打印总述 + 最新一条未完成 task + 简要统计。"""
+    """打印下一条未完成 task 的描述与验收标准（不展示总述）。"""
     tasks = plan.get("tasks", [])
-
-    # 总述总是显示在开头
-    briefing = plan.get("briefing", "")
-    if briefing:
-        print(f"📌 {briefing}")
-        print()
 
     if not tasks:
         print("📋 plan.json 中无 task。")
         return
 
     done_count = sum(1 for t in tasks if t.get("done"))
-
-    print(f"📊 进度: {len(tasks)} tasks | ✅ {done_count} 完成")
-    print()
 
     # 找第一个 done=false 的 task
     next_task = None

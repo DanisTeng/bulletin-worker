@@ -33,8 +33,9 @@
 | 工具 | 说明 |
 |------|------|
 | `bb-plan-show-brief` | 只看总述 + 进度统计 |
-| `bb-plan-show-next` | 看总述 + 当前待办子任务 |
+| `bb-plan-show-next` | 看当前待办子任务（描述 + 验收标准），不展示总述 |
 | `bb-plan-update --index=N --done=true/false [--note="备注"]` | 更新子任务状态 |
 | `bb-plan-format-check` | 格式检查 |
-| `bb-plan-archive <计划名>` | 归档到 plan_archive/ 目录 |
 | `bb-plan-validate` | 格式检查（同 bb-plan-format-check） |
+| `bb-plan-archive` | 归档当前 plan 到 `plan_archive/` 目录，计划名从 plan.json 内部 `name` 字段读取 |
+| `bb-plan-clear` | 删除 `current_plan.json`，用于任务完结后清理 |
