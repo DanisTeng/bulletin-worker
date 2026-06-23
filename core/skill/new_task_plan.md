@@ -21,8 +21,8 @@
 - 将计划书构建到 `plan/current_plan.json`
 - 使用 `./tools/bb-plan-format-check` 进行检查，修复格式问题确保格式检查通过
 - 运行 `./tools/bb-plan-archive` 进行计划书归档
-- 使用 `./tools/bb-worker-post-new-mission <内容>` 回复留言板内容
-- 运行 `./tools/bb-set-active`
+- 使用 `./tools/bb-worker-post-new-mission <内容>` 回复留言板内容, **必须询问leader是否开始计划**
+- 运行 `./tools/bb-set-idle`
 
 ## 最终步
 结束

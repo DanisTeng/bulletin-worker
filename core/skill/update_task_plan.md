@@ -17,12 +17,22 @@
 - 跳转至最终步
 否则执行下一步。
 
-## Step 4. 更新计划书
+## Step 4. 或许需要移除计划书
+如果遇到以下情况：
+- leader 最新指示是取消计划. 
+则：
+- 运行 `./tools/bb-plan-clear` 移除现有计划书
+- 使用 `./tools/bb-worker-post-update-mission <内容>` 回复留言板内容，说明计划已取消
+- 运行 `./tools/bb-set-idle`
+- 跳转至最终步
+否则执行下一步。
+
+## Step 5. 更新计划书
 - 更新 `plan/current_plan.json` 的内容，注意保留已完成的子任务
 - 使用 `./tools/bb-plan-format-check` 进行检查，修复格式问题确保格式检查通过
 - 运行 `./tools/bb-plan-archive` 进行计划书归档
-- 使用 `./tools/bb-worker-post-update-mission <内容>` 回复留言板内容
-- 运行 `./tools/bb-set-active`
+- 使用 `./tools/bb-worker-post-update-mission <内容>` 回复留言板内容, **必须询问leader是否开始计划**
+- 运行 `./tools/bb-set-idle`
 
 ## 最终步
 结束
