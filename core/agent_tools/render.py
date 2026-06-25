@@ -113,7 +113,9 @@ def build_onefile(py_path: str, work_dir: str) -> str:
     # pyinstaller 默认把产物放 dist/，我们指定 --distpath 到 work_dir
     result = subprocess.run(
         [
-            "pyinstaller",
+            sys.executable,
+            "-m",
+            "PyInstaller",
             "--onefile",
             "--distpath",
             work_dir,
