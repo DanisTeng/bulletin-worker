@@ -50,7 +50,9 @@ def build_onefile(py_path: str, work_dir: str) -> str:
 
     result = subprocess.run(
         [
-            "pyinstaller",
+            sys.executable,
+            "-m",
+            "PyInstaller",
             "--onefile",
             "--distpath",
             work_dir,
