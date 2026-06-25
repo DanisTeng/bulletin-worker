@@ -88,7 +88,16 @@ echo "🎯 [5/3] 初始化状态..."
 python3 -c "import json; json.dump({'status': 'IDLE'}, open('$BOARD_PATH/status.json', 'w'))"
 echo "   → 状态已初始化为 IDLE"
 
+# ── 第 6 步：渲染 cron_daemon ──────────────────────────
 echo ""
+echo "🕒 [6/3] 渲染 cron_daemon（独立调度进程）..."
+python3 "$CORE_DIR/cron_daemon/render.py"
+echo ""
+
 echo "✅ 安装完成"
 echo "工作区: $WORKER_WS"
 echo "留言板: $BOARD_PATH"
+echo ""
+echo "💡 cron_daemon 使用:"
+echo "   cd $WORKER_WS/user_tools/cron_daemon/"
+echo "   python3 cron_daemon.py -p PROMPT.txt -i 5 -t 900"
