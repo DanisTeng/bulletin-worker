@@ -8,6 +8,9 @@ core/cron_daemon/render.py — 渲染 cron_daemon 到工作区
 
 输出目录: $worker_workspace/user_tools/cron_daemon/，完全自包含
 用户直接在该目录下执行 ./cron_daemon -p PROMPT.md -i 5 -t 900
+
+cron_daemon.py 硬编码了 OpenClaw v4.5 的 sessions.json 路径，不再接受
+--openclaw-path / --state-dir / --sessions-json / --agent-id 参数。
 """
 
 import json

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cron_daemon — OpenClaw cron 替代品
+cron_daemon — OpenClaw cron 替代品（v4.5 专用）
 
 独立进程，代替有 bug 的 OpenClaw 原生 cron。
 特性:
@@ -11,86 +11,62 @@ cron_daemon — OpenClaw cron 替代品
   - gateway 崩了就跟着崩（不自动重启）
 
 用法:
-  python3 cron_daemon.py --prompt PROMPT.txt --interval 5 --timeout 900
-  python3 cron_daemon.py -p PROMPT.txt -i 5 -t 900 -o ./cron_log
+  ./cron_daemon -p PROMPT.md -i 5 -t 900
+  ./cron_daemon -p PROMPT.md -i 10 -t 600 -o ./cron_log
 """
 
 import argparse
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# ── v4.5 固定路径 ──────────────────────────────────────────────
+# openclaw 4.5 的 sessions.json 路径，不再需要用户传参推导
+_OPENCLAW_PATH = "openclaw"
+_SESSIONS_JSON = os.path.expanduser(
+    "~/.openclaw/agents/main/sessions/sessions.json"
+)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析命令行参数。不依赖环境变量。"""
     p = argparse.ArgumentParser(
-        description="cron_daemon — OpenClaw cron 替代品",
+        description="cron_daemon — OpenClaw v4.5 cron 替代品",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     p.add_argument(
         "-p", "--prompt",
         type=str,
-        default="PROMPT.txt",
-        help="提示词文件路径（默认同目录下 PROMPT.txt）",
+        default="PROMPT.md",
+        help="提示词文件路径（默认同目录下 PROMPT.md）",
     )
     p.add_argument(
         "-i", "--interval",
         type=int,
         default=5,
-        help="执行间隔（分钟），默认 5",
+        metavar="MINUTES",
+        help="执行间隔，分钟（默认 5）",
     )
     p.add_argument(
         "-t", "--timeout",
         type=int,
         default=600,
-        help="单次 agent 超时（秒），默认 600",
+        metavar="SECONDS",
+        help="单次 agent 超时，秒（默认 600）",
     )
     p.add_argument(
         "-o", "--output-dir",
         type=str,
         default="./cron_log",
+        metavar="DIR",
         help="agent 回复日志目录（默认 ./cron_log）",
     )
-    p.add_argument(
-        "--openclaw-path",
-        type=str,
-        default="openclaw",
-        help="openclaw CLI 路径（默认 PATH 中的 openclaw）",
-    )
-    p.add_argument(
-        "--sessions-json",
-        type=str,
-        default=None,
-        help="sessions.json 路径（默认自动推导）",
-    )
-    p.add_argument(
-        "--state-dir",
-        type=str,
-        default=None,
-        help="~/.openclaw 路径（默认 ~/.openclaw，自动推导 sessions 路径）",
-    )
-    p.add_argument(
-        "--agent-id",
-        type=str,
-        default="main",
-        help="agent ID，默认 main",
-    )
     return p.parse_args(argv)
-
-
-def resolve_sessions_json(args: argparse.Namespace) -> str:
-    """推导 sessions.json 路径。"""
-    if args.sessions_json:
-        return args.sessions_json
-
-    state_dir = args.state_dir or os.path.expanduser("~/.openclaw")
-    return os.path.join(state_dir, "agents", args.agent_id, "sessions", "sessions.json")
 
 
 def load_prompt(prompt_path: str) -> str:
@@ -102,18 +78,10 @@ def load_prompt(prompt_path: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def run_agent(
-    message: str,
-    session_id: str,
-    timeout: int,
-    openclaw_path: str,
-) -> tuple[bool, str]:
-    """
-    执行一次 openclaw agent 调用。
-    返回 (成功与否, agent 回复文本)。
-    """
+def run_agent(message: str, session_id: str, timeout: int) -> tuple[bool, str]:
+    """执行一次 openclaw agent 调用。返回 (成功与否, agent 回复文本)。"""
     cmd = [
-        openclaw_path,
+        _OPENCLAW_PATH,
         "agent",
         "--session-id", session_id,
         "--message", message,
@@ -134,20 +102,20 @@ def run_agent(
     except subprocess.TimeoutExpired:
         return False, f"(timeout after {timeout}s)"
     except FileNotFoundError:
-        return False, f"(openclaw not found: {openclaw_path})"
+        return False, "(openclaw not found in PATH)"
     except Exception as e:
         return False, f"(error: {e})"
 
 
-def cleanse_session(session_id: str, sessions_json_path: str) -> None:
+def cleanse_session(session_id: str) -> None:
     """
     用完即焚 — 从 sessions.json 删掉对应条目，并删除 transcript 文件。
     静默失败（不打断主流程）。
     """
     # 1. 从 sessions.json 删除条目
-    if os.path.exists(sessions_json_path):
+    if os.path.exists(_SESSIONS_JSON):
         try:
-            with open(sessions_json_path, "r", encoding="utf-8") as f:
+            with open(_SESSIONS_JSON, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             modified = False
@@ -161,13 +129,13 @@ def cleanse_session(session_id: str, sessions_json_path: str) -> None:
                 modified = len(data) < before
 
             if modified:
-                with open(sessions_json_path, "w", encoding="utf-8") as f:
+                with open(_SESSIONS_JSON, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception:
-            pass  # 静默
+            pass
 
     # 2. 删除 transcript 文件
-    sessions_dir = os.path.dirname(sessions_json_path)
+    sessions_dir = os.path.dirname(_SESSIONS_JSON)
     for ext in [".jsonl", ".trajectory.json", ".jsonl.lock"]:
         fpath = os.path.join(sessions_dir, f"{session_id}{ext}")
         try:
@@ -201,8 +169,11 @@ def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if not args.interval:
+        print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
+        sys.exit(1)
+
     prompt = load_prompt(args.prompt)
-    sessions_json_path = resolve_sessions_json(args)
 
     interval_minutes = args.interval
     interval_seconds = interval_minutes * 60
@@ -214,8 +185,8 @@ def main(argv: list[str] | None = None) -> None:
         f"  interval:    {interval_minutes} 分钟 ({interval_seconds}s)\n"
         f"  timeout:     {timeout_seconds}s\n"
         f"  log dir:     {args.output_dir}\n"
-        f"  sessions:    {sessions_json_path}\n"
-        f"  openclaw:    {args.openclaw_path}\n"
+        f"  sessions:    {_SESSIONS_JSON}\n"
+        f"  openclaw 4.5 (locked)\n"
     )
 
     round_num = 0
@@ -231,14 +202,13 @@ def main(argv: list[str] | None = None) -> None:
             message=prompt,
             session_id=session_id,
             timeout=timeout_seconds,
-            openclaw_path=args.openclaw_path,
         )
 
         # 存日志
         save_log(args.output_dir, session_id, success, output)
 
         # 焚毁 session
-        cleanse_session(session_id, sessions_json_path)
+        cleanse_session(session_id)
 
         print(f"  session: {session_id} | {'OK' if success else 'FAIL'} | 日志已保存")
 
