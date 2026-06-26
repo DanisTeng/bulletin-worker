@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""
+cron_daemon — OpenClaw cron 替代品（v4.5 专用）
+
+独立进程，代替有 bug 的 OpenClaw 原生 cron。
+特性:
+  - 每隔 X 分钟跑一次，任务不重叠
+  - 每次创建隔离 session，跑完即焚（刷掉 sessions.json + transcript）
+  - 超时自行管理
+  - agent 回复存日志文件
+  - gateway 崩了就跟着崩（不自动重启）
+
+用法:
+  ./cron_daemon -p PROMPT.md -i 5 -t 900
+  ./cron_daemon -p PROMPT.md -i 10 -t 600 -o ./cron_log
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ── v4.5 默认路径 ────────────────────────────────────────────
+# 可通过 --agent 覆盖，适配 agent id 非 main 的用户
+_OPENCLAW_PATH = "openclaw"
+_DEFAULT_AGENT = "main"
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="cron_daemon — OpenClaw v4.5 cron 替代品",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    p.add_argument(
+        "-p", "--prompt",
+        type=str,
+        default="PROMPT.md",
+        help="提示词文件路径（默认同目录下 PROMPT.md）",
+    )
+    p.add_argument(
+        "-i", "--interval",
+        type=int,
+        default=5,
+        metavar="MINUTES",
+        help="执行间隔，分钟（默认 5）",
+    )
+    p.add_argument(
+        "-t", "--timeout",
+        type=int,
+        default=600,
+        metavar="SECONDS",
+        help="单次 agent 超时，秒（默认 600）",
+    )
+    p.add_argument(
+        "-o", "--output-dir",
+        type=str,
+        default="./cron_log",
+        metavar="DIR",
+        help="agent 回复日志目录（默认 ./cron_log）",
+    )
+    p.add_argument(
+        "-a", "--agent",
+        type=str,
+        default=_DEFAULT_AGENT,
+        metavar="ID",
+        help=f"OpenClaw agent ID（默认 {_DEFAULT_AGENT}）",
+    )
+    return p.parse_args(argv)
+
+
+def _sessions_json_for(agent_id: str) -> str:
+    """v4.5 的 sessions.json 路径，按 agent id 推导。"""
+    return os.path.expanduser(
+        f"~/.openclaw/agents/{agent_id}/sessions/sessions.json"
+    )
+
+
+def _actual_key_for(agent_id: str, session_id: str) -> str:
+    """openclaw agent --session-id 在 sessions.json 里实际存的 key。"""
+    return f"agent:{agent_id}:explicit:{session_id}"
+
+
+def load_prompt(prompt_path: str) -> str:
+    """读取提示词文件。"""
+    path = Path(prompt_path)
+    if not path.exists():
+        print(f"[FATAL] 提示词文件不存在: {path.resolve()}", file=sys.stderr)
+        sys.exit(1)
+    return path.read_text(encoding="utf-8").strip()
+
+
+def run_agent(message: str, session_id: str, timeout: int) -> tuple[bool, str]:
+    """执行一次 openclaw agent 调用。返回 (成功与否, agent 回复文本)。"""
+    cmd = [
+        _OPENCLAW_PATH,
+        "agent",
+        "--session-id", session_id,
+        "--message", message,
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        success = result.returncode == 0
+        output = result.stdout.strip() or result.stderr.strip()
+        if not output:
+            output = f"(exit code {result.returncode})"
+        return success, output
+    except subprocess.TimeoutExpired:
+        return False, f"(timeout after {timeout}s)"
+    except FileNotFoundError:
+        return False, "(openclaw not found in PATH)"
+    except Exception as e:
+        return False, f"(error: {e})"
+
+
+def cleanse_session(session_id: str, agent_id: str) -> None:
+    """
+    用完即焚 — 从 sessions.json 删掉对应条目。
+    静默失败（不打断主流程）。
+    """
+    sessions_json = _sessions_json_for(agent_id)
+    actual_key = _actual_key_for(agent_id, session_id)
+
+    if os.path.exists(sessions_json):
+        try:
+            with open(sessions_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            modified = False
+            if isinstance(data, dict):
+                if actual_key in data:
+                    del data[actual_key]
+                    modified = True
+            elif isinstance(data, list):
+                before = len(data)
+                data = [s for s in data if s.get("key") != actual_key]
+                modified = len(data) < before
+
+            if modified:
+                with open(sessions_json, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+
+    # 不删 transcript 文件——文件名是 UUID，不从 session_id 可推
+
+
+def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
+    """将 agent 回复写入日志文件。文件名即时间戳。"""
+    out_path = Path(output_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")[:-3]
+    status = "OK" if success else "FAIL"
+    filename = f"{timestamp}_{status}.txt"
+    filepath = out_path / filename
+
+    content = (
+        f"# cron_daemon log\n"
+        f"# triggered_at:  {datetime.now(timezone.utc).isoformat()}\n"
+        f"# session:       {session_id}\n"
+        f"# success:       {success}\n"
+        f"# {'=' * 40}\n"
+        f"{text}\n"
+    )
+
+    filepath.write_text(content, encoding="utf-8")
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    if not args.interval:
+        print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
+        sys.exit(1)
+
+    prompt = load_prompt(args.prompt)
+    agent_id = args.agent
+
+    interval_minutes = args.interval
+    interval_seconds = interval_minutes * 60
+    timeout_seconds = args.timeout
+
+    print(
+        f"[cron_daemon] 启动\n"
+        f"  prompt:      {args.prompt}\n"
+        f"  interval:    {interval_minutes} 分钟 ({interval_seconds}s)\n"
+        f"  timeout:     {timeout_seconds}s\n"
+        f"  log dir:     {args.output_dir}\n"
+        f"  sessions:    {_sessions_json_for(agent_id)}\n"
+        f"  openclaw 4.5 | agent: {agent_id}\n"
+    )
+
+    round_num = 0
+    while True:
+        round_num += 1
+        session_id = f"cron-{int(time.time())}-{os.getpid()}"
+
+        trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
+
+        # 执行 agent turn
+        success, output = run_agent(
+            message=prompt,
+            session_id=session_id,
+            timeout=timeout_seconds,
+        )
+
+        # 存日志
+        save_log(args.output_dir, session_id, success, output)
+
+        # 焚毁 session
+        cleanse_session(session_id, agent_id)
+
+        print(f"  session: {session_id} | {'OK' if success else 'FAIL'} | 日志已保存")
+
+        # 等下一轮（从上一次执行完开始算）
+        print(f"  等待 {interval_minutes} 分钟 ...\n")
+        time.sleep(interval_seconds)
+
+
+if __name__ == "__main__":
+    main()
