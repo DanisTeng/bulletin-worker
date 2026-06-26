@@ -113,6 +113,11 @@ def cleanse_session(session_id: str) -> None:
     静默失败（不打断主流程）。
     """
     # 1. 从 sessions.json 删除条目
+    # 注意：openclaw agent --session-id "cron-xxx" 在 sessions.json 里的
+    # key 是 "agent:main:explicit:cron-xxx"，所以需要匹配带前缀的完整 key
+    _ACTUAL_KEY_FMT = "agent:main:explicit:"  # openclaw v4.5 固定前缀
+    actual_key = f"{_ACTUAL_KEY_FMT}{session_id}"
+
     if os.path.exists(_SESSIONS_JSON):
         try:
             with open(_SESSIONS_JSON, "r", encoding="utf-8") as f:
@@ -120,12 +125,12 @@ def cleanse_session(session_id: str) -> None:
 
             modified = False
             if isinstance(data, dict):
-                if session_id in data:
-                    del data[session_id]
+                if actual_key in data:
+                    del data[actual_key]
                     modified = True
             elif isinstance(data, list):
                 before = len(data)
-                data = [s for s in data if s.get("key") != session_id]
+                data = [s for s in data if s.get("key") != actual_key]
                 modified = len(data) < before
 
             if modified:
@@ -135,14 +140,9 @@ def cleanse_session(session_id: str) -> None:
             pass
 
     # 2. 删除 transcript 文件
-    sessions_dir = os.path.dirname(_SESSIONS_JSON)
-    for ext in [".jsonl", ".trajectory.json", ".jsonl.lock"]:
-        fpath = os.path.join(sessions_dir, f"{session_id}{ext}")
-        try:
-            if os.path.exists(fpath):
-                os.remove(fpath)
-        except Exception:
-            pass
+    # transcript 文件名用的是 UUID（存于会话的 sessionId 字段），不是 key
+    # 我们不清 transcript 了——只删 sessions.json 条目就够，transcript 等 maintenance 清
+    # 何况文件是 UUID 名，我们没法从前缀推出来
 
 
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
