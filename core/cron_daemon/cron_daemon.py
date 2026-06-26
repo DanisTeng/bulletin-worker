@@ -24,16 +24,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# ── v4.5 固定路径 ──────────────────────────────────────────────
-# openclaw 4.5 的 sessions.json 路径，不再需要用户传参推导
+# ── v4.5 默认路径 ────────────────────────────────────────────
+# 可通过 --agent 覆盖，适配 agent id 非 main 的用户
 _OPENCLAW_PATH = "openclaw"
-_SESSIONS_JSON = os.path.expanduser(
-    "~/.openclaw/agents/main/sessions/sessions.json"
-)
+_DEFAULT_AGENT = "main"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """解析命令行参数。不依赖环境变量。"""
     p = argparse.ArgumentParser(
         description="cron_daemon — OpenClaw v4.5 cron 替代品",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -66,7 +63,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="DIR",
         help="agent 回复日志目录（默认 ./cron_log）",
     )
+    p.add_argument(
+        "-a", "--agent",
+        type=str,
+        default=_DEFAULT_AGENT,
+        metavar="ID",
+        help=f"OpenClaw agent ID（默认 {_DEFAULT_AGENT}）",
+    )
     return p.parse_args(argv)
+
+
+def _sessions_json_for(agent_id: str) -> str:
+    """v4.5 的 sessions.json 路径，按 agent id 推导。"""
+    return os.path.expanduser(
+        f"~/.openclaw/agents/{agent_id}/sessions/sessions.json"
+    )
+
+
+def _actual_key_for(agent_id: str, session_id: str) -> str:
+    """openclaw agent --session-id 在 sessions.json 里实际存的 key。"""
+    return f"agent:{agent_id}:explicit:{session_id}"
 
 
 def load_prompt(prompt_path: str) -> str:
@@ -107,20 +123,17 @@ def run_agent(message: str, session_id: str, timeout: int) -> tuple[bool, str]:
         return False, f"(error: {e})"
 
 
-def cleanse_session(session_id: str) -> None:
+def cleanse_session(session_id: str, agent_id: str) -> None:
     """
-    用完即焚 — 从 sessions.json 删掉对应条目，并删除 transcript 文件。
+    用完即焚 — 从 sessions.json 删掉对应条目。
     静默失败（不打断主流程）。
     """
-    # 1. 从 sessions.json 删除条目
-    # 注意：openclaw agent --session-id "cron-xxx" 在 sessions.json 里的
-    # key 是 "agent:main:explicit:cron-xxx"，所以需要匹配带前缀的完整 key
-    _ACTUAL_KEY_FMT = "agent:main:explicit:"  # openclaw v4.5 固定前缀
-    actual_key = f"{_ACTUAL_KEY_FMT}{session_id}"
+    sessions_json = _sessions_json_for(agent_id)
+    actual_key = _actual_key_for(agent_id, session_id)
 
-    if os.path.exists(_SESSIONS_JSON):
+    if os.path.exists(sessions_json):
         try:
-            with open(_SESSIONS_JSON, "r", encoding="utf-8") as f:
+            with open(sessions_json, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             modified = False
@@ -134,15 +147,12 @@ def cleanse_session(session_id: str) -> None:
                 modified = len(data) < before
 
             if modified:
-                with open(_SESSIONS_JSON, "w", encoding="utf-8") as f:
+                with open(sessions_json, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
 
-    # 2. 删除 transcript 文件
-    # transcript 文件名用的是 UUID（存于会话的 sessionId 字段），不是 key
-    # 我们不清 transcript 了——只删 sessions.json 条目就够，transcript 等 maintenance 清
-    # 何况文件是 UUID 名，我们没法从前缀推出来
+    # 不删 transcript 文件——文件名是 UUID，不从 session_id 可推
 
 
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
@@ -174,6 +184,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     prompt = load_prompt(args.prompt)
+    agent_id = args.agent
 
     interval_minutes = args.interval
     interval_seconds = interval_minutes * 60
@@ -185,8 +196,8 @@ def main(argv: list[str] | None = None) -> None:
         f"  interval:    {interval_minutes} 分钟 ({interval_seconds}s)\n"
         f"  timeout:     {timeout_seconds}s\n"
         f"  log dir:     {args.output_dir}\n"
-        f"  sessions:    {_SESSIONS_JSON}\n"
-        f"  openclaw 4.5 (locked)\n"
+        f"  sessions:    {_sessions_json_for(agent_id)}\n"
+        f"  openclaw 4.5 | agent: {agent_id}\n"
     )
 
     round_num = 0
@@ -208,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
         save_log(args.output_dir, session_id, success, output)
 
         # 焚毁 session
-        cleanse_session(session_id)
+        cleanse_session(session_id, agent_id)
 
         print(f"  session: {session_id} | {'OK' if success else 'FAIL'} | 日志已保存")
 
