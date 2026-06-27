@@ -236,6 +236,8 @@ bulletin-worker/
 │   ├── run.sh
 │   ├── helpers.sh
 │   └── cases/
+├── terminal/                ← bb-terminal：交互式终端
+│   └── DESIGN.md            ← 终端详细设计文档
 ├── tmp/                     ← pyinstaller 构建中间产物
 ├── output/                  ← 渲染中间产物
 └── tools/                   ← 部署产物（work in progress）
