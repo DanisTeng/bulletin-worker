@@ -172,6 +172,22 @@ def cleanse_session(session_id: str, agent_id: str) -> None:
     # 不删 transcript 文件——文件名是 UUID，不从 session_id 可推
 
 
+def _write_status(status_path: str, status: str, round_num: int,
+                   agent_status: str | None) -> None:
+    """写 .cron_daemon.status.json，外部进程可只读读取。"""
+    payload = {
+        "pid": os.getpid(),
+        "daemon_status": status,  # "RUNNING" | "SLEEPING" | "FATAL"
+        "round": round_num,
+        "latest_round_at": datetime.now(timezone.utc).isoformat(),
+        "latest_agent_status": agent_status,  # "OK" | "FAIL" | "SKIP" | None
+    }
+    tmp = status_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.rename(tmp, status_path)
+
+
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
     """将 agent 回复写入日志文件。文件名即时间戳。"""
     out_path = Path(output_dir)
@@ -229,8 +245,13 @@ def main(argv: list[str] | None = None) -> None:
     status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
 
     # ── 单例锁（同一工作区只能跑一个实例）──
-    lock_path = Path(args.output_dir).parent / ".cron_daemon.lock"
+    daemon_dir = Path(args.output_dir).parent
+    lock_path = daemon_dir / ".cron_daemon.lock"
     _acquire_singleton_lock(str(lock_path))
+
+    # ── 状态文件路径（外部只读监控用）──
+    status_path = str(daemon_dir / ".cron_daemon.status.json")
+    _write_status(status_path, "RUNNING", 0, None)
 
     print(
         f"[cron_daemon] 启动\n"
@@ -257,9 +278,10 @@ def main(argv: list[str] | None = None) -> None:
                     [str(status_cmd)],
                     capture_output=True, text=True, timeout=10,
                 )
-                status = r.stdout.strip()
-                if status != "ACTIVE":
-                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {status}，非 ACTIVE（无日志写入）")
+                bb_status = r.stdout.strip()
+                if bb_status != "ACTIVE":
+                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
                     time.sleep(interval_seconds)
                     continue
             except FileNotFoundError:
@@ -276,15 +298,21 @@ def main(argv: list[str] | None = None) -> None:
             timeout=timeout_seconds,
         )
 
+        agent_status = "OK" if success else "FAIL"
+
+        # 写状态（agent 刚跑完 → RUNNING）
+        _write_status(status_path, "RUNNING", round_num, agent_status)
+
         # 存日志
         save_log(args.output_dir, session_id, success, output)
 
         # 焚毁 session
         cleanse_session(session_id, agent_id)
 
-        print(f"  session: {session_id} | {'OK' if success else 'FAIL'} | 日志已保存")
+        print(f"  session: {session_id} | {agent_status} | 日志已保存")
 
-        # 等下一轮（从上一次执行完开始算）
+        # 等下一轮前标记为 SLEEPING
+        _write_status(status_path, "SLEEPING", round_num, agent_status)
         print(f"  等待 {interval_minutes} 分钟 ...\n")
         time.sleep(interval_seconds)
 
