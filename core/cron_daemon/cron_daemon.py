@@ -13,6 +13,9 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
 用法:
   ./cron_daemon -p PROMPT.md -i 5 -t 900
   ./cron_daemon -p PROMPT.md -i 10 -t 600 -o ./cron_log
+
+特性:
+  - 可选前置检查 worker 状态：非 ACTIVE 时自动跳过本轮，不浪费 token
 """
 
 import argparse
@@ -69,6 +72,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=_DEFAULT_AGENT,
         metavar="ID",
         help=f"OpenClaw agent ID（默认 {_DEFAULT_AGENT}）",
+    )
+    p.add_argument(
+        "-s", "--bb-status-cmd",
+        type=str,
+        default="../bb-get-status",
+        metavar="PATH",
+        help="bb-get-status 可执行路径（默认 ../bb-get-status）",
+    )
+    p.add_argument(
+        "--no-skip-if-idle",
+        action="store_true",
+        help="跳过——即使 worker 非 ACTIVE 也执行 agent turn（默认启用前置检查）",
     )
     return p.parse_args(argv)
 
@@ -190,6 +205,8 @@ def main(argv: list[str] | None = None) -> None:
     interval_seconds = interval_minutes * 60
     timeout_seconds = args.timeout
 
+    status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
+
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
@@ -198,6 +215,7 @@ def main(argv: list[str] | None = None) -> None:
         f"  log dir:     {args.output_dir}\n"
         f"  sessions:    {_sessions_json_for(agent_id)}\n"
         f"  openclaw 4.5 | agent: {agent_id}\n"
+        f"  status cmd:  {status_cmd or '(none)'}{'' if args.no_skip_if_idle else ' | 前置检查开启'}\n"
     )
 
     round_num = 0
@@ -206,6 +224,24 @@ def main(argv: list[str] | None = None) -> None:
         session_id = f"cron-{int(time.time())}-{os.getpid()}"
 
         trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        # ── 前置检查：worker 状态 ────────────────────────────────────
+        if status_cmd and not args.no_skip_if_idle:
+            try:
+                r = subprocess.run(
+                    [str(status_cmd)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                status = r.stdout.strip()
+                if status != "ACTIVE":
+                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {status}，非 ACTIVE")
+                    time.sleep(interval_seconds)
+                    continue
+            except FileNotFoundError:
+                print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
+            except Exception as e:
+                print(f"[WARN] bb-status-cmd 执行失败: {e}，放行执行", file=sys.stderr)
+
         print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
 
         # 执行 agent turn
