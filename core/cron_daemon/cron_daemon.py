@@ -239,10 +239,6 @@ def main(argv: list[str] | None = None) -> None:
         print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
         sys.exit(1)
 
-    # 在顶层声明，给 __main__ 的 except 用
-    global _g_status_path
-    _g_status_path = None
-
     prompt = load_prompt(args.prompt)
     agent_id = args.agent
 
@@ -259,7 +255,6 @@ def main(argv: list[str] | None = None) -> None:
 
     # ── 状态文件路径（外部只读监控用）──
     status_path = str(daemon_dir / ".cron_daemon.status.json")
-    _g_status_path = status_path
     _write_status(status_path, "RUNNING", 0, None)
 
     print(
@@ -276,75 +271,78 @@ def main(argv: list[str] | None = None) -> None:
     round_num = 0
     consecutive_skips = 0
     while True:
-        session_id = f"cron-{int(time.time())}-{os.getpid()}"
-        trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-        # ── 前置检查：worker 状态 ────────────────────────────────────
-        is_skip = False
-        if status_cmd and not args.no_skip_if_idle:
-            try:
-                r = subprocess.run(
-                    [str(status_cmd)],
-                    capture_output=True, text=True, timeout=10,
-                )
-                bb_status = r.stdout.strip()
-                if bb_status != "ACTIVE":
-                    is_skip = True
-                    consecutive_skips += 1
-                    if consecutive_skips <= 3:
-                        round_num += 1
-                        _write_status(status_path, "SLEEPING", round_num, "SKIP")
-                        print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
-                    # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
-                    time.sleep(interval_seconds)
-                    continue
-            except FileNotFoundError:
-                print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
-            except Exception as e:
-                print(f"[WARN] bb-status-cmd 执行失败: {e}，放行执行", file=sys.stderr)
-
-        # 执行 agent turn（或未启用前置检查）时才到这里
-        round_num += 1
-        consecutive_skips = 0
-        print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
-
-        # 执行 agent turn
-        success, output = run_agent(
-            message=prompt,
-            session_id=session_id,
-            timeout=timeout_seconds,
-        )
-
-        agent_status = "OK" if success else "FAIL"
-
-        # 写状态（agent 刚跑完 → RUNNING）
-        _write_status(status_path, "RUNNING", round_num, agent_status)
-
-        # 存日志
-        save_log(args.output_dir, session_id, success, output)
-
-        # 焚毁 session
-        cleanse_session(session_id, agent_id)
-
-        print(f"  session: {session_id} | {agent_status} | 日志已保存")
-
-        # 等下一轮前标记为 SLEEPING
-        _write_status(status_path, "SLEEPING", round_num, agent_status)
-        print(f"  等待 {interval_minutes} 分钟 ...\n")
-        time.sleep(interval_seconds)
+        try:
+            rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+            round_num = rn
+            consecutive_skips = cs
+        except KeyboardInterrupt:
+            _write_status(status_path, "STOPPED", 0, None)
+            print("\n[cron_daemon] 已停止")
+            sys.exit(0)
 
 
-_g_status_path: str | None = None
+def _loop_body(
+    args, status_cmd, status_path, interval_seconds, interval_minutes,
+    prompt, agent_id, timeout_seconds,
+    round_num: int, consecutive_skips: int,
+) -> tuple[int, int]:
+    """执行一轮 cron。返回 (next_round_num, next_consecutive_skips)。"""
+    session_id = f"cron-{int(time.time())}-{os.getpid()}"
+    trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    # ── 前置检查：worker 状态 ────────────────────────────────────
+    if status_cmd and not args.no_skip_if_idle:
+        try:
+            r = subprocess.run(
+                [str(status_cmd)],
+                capture_output=True, text=True, timeout=10,
+            )
+            bb_status = r.stdout.strip()
+            if bb_status != "ACTIVE":
+                consecutive_skips += 1
+                if consecutive_skips <= 3:
+                    round_num += 1
+                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
+                # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
+                time.sleep(interval_seconds)
+                return (round_num, consecutive_skips)  # 跳过本轮
+        except FileNotFoundError:
+            print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
+        except Exception as e:
+            print(f"[WARN] bb-status-cmd 执行失败: {e}，放行执行", file=sys.stderr)
+
+    # 执行 agent turn（或未启用前置检查）时才到这里
+    round_num += 1
+    consecutive_skips = 0
+    print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
+
+    # 执行 agent turn
+    success, output = run_agent(
+        message=prompt,
+        session_id=session_id,
+        timeout=timeout_seconds,
+    )
+
+    agent_status = "OK" if success else "FAIL"
+
+    # 写状态（agent 刚跑完 → RUNNING）
+    _write_status(status_path, "RUNNING", round_num, agent_status)
+
+    # 存日志
+    save_log(args.output_dir, session_id, success, output)
+
+    # 焚毁 session
+    cleanse_session(session_id, agent_id)
+
+    print(f"  session: {session_id} | {agent_status} | 日志已保存")
+
+    # 等下一轮前标记为 SLEEPING
+    _write_status(status_path, "SLEEPING", round_num, agent_status)
+    print(f"  等待 {interval_minutes} 分钟 ...\n")
+    time.sleep(interval_seconds)
+    return (round_num, consecutive_skips)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        if _g_status_path:
-            try:
-                _write_status(_g_status_path, "STOPPED", 0, None)
-            except Exception:
-                pass
-        print("\n[cron_daemon] 已停止")
-        sys.exit(0)
+    main()
