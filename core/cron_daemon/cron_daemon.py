@@ -274,13 +274,13 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     round_num = 0
+    consecutive_skips = 0
     while True:
-        round_num += 1
         session_id = f"cron-{int(time.time())}-{os.getpid()}"
-
         trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
         # ── 前置检查：worker 状态 ────────────────────────────────────
+        is_skip = False
         if status_cmd and not args.no_skip_if_idle:
             try:
                 r = subprocess.run(
@@ -289,8 +289,13 @@ def main(argv: list[str] | None = None) -> None:
                 )
                 bb_status = r.stdout.strip()
                 if bb_status != "ACTIVE":
-                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
-                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
+                    is_skip = True
+                    consecutive_skips += 1
+                    if consecutive_skips <= 3:
+                        round_num += 1
+                        _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                        print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
+                    # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
                     time.sleep(interval_seconds)
                     continue
             except FileNotFoundError:
@@ -298,6 +303,9 @@ def main(argv: list[str] | None = None) -> None:
             except Exception as e:
                 print(f"[WARN] bb-status-cmd 执行失败: {e}，放行执行", file=sys.stderr)
 
+        # 执行 agent turn（或未启用前置检查）时才到这里
+        round_num += 1
+        consecutive_skips = 0
         print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
 
         # 执行 agent turn
