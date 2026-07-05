@@ -120,11 +120,13 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
     )
 
     if enable_status_check:
-        # daemon_dir = user_tools/cron_daemon/ → ../tools/bb-get-status
+        # bb-get-status 在 $worker_workspace/tools/bb-get-status
+        ws_dir = os.path.dirname(os.path.dirname(dst_dir))  # user_tools/cron_daemon/ → 工作区根
+        bb_status = os.path.join(ws_dir, "tools", "bb-get-status")
         if skip_if_idle:
-            args += ' --bb-status-cmd ../tools/bb-get-status'
+            args += f' --bb-status-cmd "{bb_status}"'
         else:
-            args += ' --bb-status-cmd ../tools/bb-get-status --no-skip-if-idle'
+            args += f' --bb-status-cmd "{bb_status}" --no-skip-if-idle'
 
     script = f"""#!/bin/bash
 # run_cron_daemon.sh — 由 core/cron_daemon/render.py 自动生成
