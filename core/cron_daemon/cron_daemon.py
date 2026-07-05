@@ -26,6 +26,7 @@ import argparse
 import fcntl
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -192,6 +193,22 @@ def _write_status(status_path: str, status: str, round_num: int,
     os.rename(tmp, status_path)
 
 
+def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
+    """可中断的 sleep——每秒检查 stdin，按 'q' 则写 STOPPED 后退出。"""
+    for _ in range(seconds):
+        if select.select([sys.stdin], [], [], 0)[0]:
+            try:
+                ch = sys.stdin.read(1)
+                if ch == "q":
+                    if status_path:
+                        _write_status(status_path, "STOPPED", 0, None)
+                    print("\n[cron_daemon] 已停止")
+                    sys.exit(0)
+            except Exception:
+                pass
+        time.sleep(1)
+
+
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
     """将 agent 回复写入日志文件。文件名即时间戳。"""
     out_path = Path(output_dir)
@@ -271,14 +288,9 @@ def main(argv: list[str] | None = None) -> None:
     round_num = 0
     consecutive_skips = 0
     while True:
-        try:
-            rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
-            round_num = rn
-            consecutive_skips = cs
-        except KeyboardInterrupt:
-            _write_status(status_path, "STOPPED", 0, None)
-            print("\n[cron_daemon] 已停止")
-            sys.exit(0)
+        rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+        round_num = rn
+        consecutive_skips = cs
 
 
 def _loop_body(
@@ -305,7 +317,7 @@ def _loop_body(
                     _write_status(status_path, "SLEEPING", round_num, "SKIP")
                     print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
                 # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
-                time.sleep(interval_seconds)
+                _interruptible_sleep(interval_seconds, status_path)
                 return (round_num, consecutive_skips)  # 跳过本轮
         except FileNotFoundError:
             print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
@@ -340,7 +352,7 @@ def _loop_body(
     # 等下一轮前标记为 SLEEPING
     _write_status(status_path, "SLEEPING", round_num, agent_status)
     print(f"  等待 {interval_minutes} 分钟 ...\n")
-    time.sleep(interval_seconds)
+    _interruptible_sleep(interval_seconds, status_path)
     return (round_num, consecutive_skips)
 
 
