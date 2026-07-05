@@ -11,13 +11,22 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
   - gateway 崩了就跟着崩（不自动重启）
 
 用法:
-  ./cron_daemon -p PROMPT.md -i 5 -t 900
-  ./cron_daemon -p PROMPT.md -i 10 -t 600 -o ./cron_log
+  ./cron_daemon -p PROMPT.md -i 5 -t 600
+  ./cron_daemon -p PROMPT.md -i 5 -t 600 -s ../bb-get-status
+
+所有路径/参数由 sh wrapper（run_cron_daemon.sh）自动填充。
+
+特性:
+  - 可选前置检查 worker 状态：非 ACTIVE 时自动跳过本轮，不浪费 token
+  - 单例锁（fcntl.flock）：同一工作区只能运行一个实例
+  - 状态文件 .cron_daemon.status.json 供外部只读监控
 """
 
 import argparse
+import fcntl
 import json
 import os
+import select
 import subprocess
 import sys
 import time
@@ -39,22 +48,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "-p", "--prompt",
         type=str,
-        default="PROMPT.md",
-        help="提示词文件路径（默认同目录下 PROMPT.md）",
+        required=True,
+        metavar="PATH",
+        help="提示词文件路径（必填）",
     )
     p.add_argument(
         "-i", "--interval",
         type=int,
-        default=5,
+        required=True,
         metavar="MINUTES",
-        help="执行间隔，分钟（默认 5）",
+        help="执行间隔，分钟（必填）",
     )
     p.add_argument(
         "-t", "--timeout",
         type=int,
-        default=600,
+        required=True,
         metavar="SECONDS",
-        help="单次 agent 超时，秒（默认 600）",
+        help="单次 agent 超时，秒（必填）",
     )
     p.add_argument(
         "-o", "--output-dir",
@@ -69,6 +79,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=_DEFAULT_AGENT,
         metavar="ID",
         help=f"OpenClaw agent ID（默认 {_DEFAULT_AGENT}）",
+    )
+    p.add_argument(
+        "-s", "--bb-status-cmd",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="bb-get-status 可执行路径（不传则不启用前置检查）",
+    )
+    p.add_argument(
+        "--no-skip-if-idle",
+        action="store_true",
+        help="跳过——即使 worker 非 ACTIVE 也执行 agent turn",
     )
     return p.parse_args(argv)
 
@@ -155,6 +177,38 @@ def cleanse_session(session_id: str, agent_id: str) -> None:
     # 不删 transcript 文件——文件名是 UUID，不从 session_id 可推
 
 
+def _write_status(status_path: str, status: str, round_num: int,
+                   agent_status: str | None) -> None:
+    """写 .cron_daemon.status.json，外部进程可只读读取。"""
+    payload = {
+        "pid": os.getpid(),
+        "daemon_status": status,  # "RUNNING" | "SLEEPING" | "FATAL"
+        "round": round_num,
+        "latest_round_at": datetime.now(timezone.utc).isoformat(),
+        "latest_agent_status": agent_status,  # "OK" | "FAIL" | "SKIP" | None
+    }
+    tmp = status_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.rename(tmp, status_path)
+
+
+def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
+    """可中断的 sleep——每秒检查 stdin，按 'q' 则写 STOPPED 后退出。"""
+    for _ in range(seconds):
+        if select.select([sys.stdin], [], [], 0)[0]:
+            try:
+                ch = sys.stdin.read(1)
+                if ch == "q":
+                    if status_path:
+                        _write_status(status_path, "STOPPED", 0, None)
+                    print("\n[cron_daemon] 已停止")
+                    sys.exit(0)
+            except Exception:
+                pass
+        time.sleep(1)
+
+
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
     """将 agent 回复写入日志文件。文件名即时间戳。"""
     out_path = Path(output_dir)
@@ -177,6 +231,25 @@ def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None
     filepath.write_text(content, encoding="utf-8")
 
 
+def _acquire_singleton_lock(lock_path: str) -> int:
+    """获取单例文件锁。返回 fd，进程退出时 OS 自动释放。"""
+    lf = Path(lock_path)
+    lf.parent.mkdir(parents=True, exist_ok=True)
+    fd = lf.open("w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, BlockingIOError):
+        fd.close()
+        print(
+            f"[FATAL] 已有 cron_daemon 实例运行 (lock: {lock_path})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    fd.write(f"{os.getpid()}\n")
+    fd.flush()
+    return fd
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.interval:
@@ -190,6 +263,17 @@ def main(argv: list[str] | None = None) -> None:
     interval_seconds = interval_minutes * 60
     timeout_seconds = args.timeout
 
+    status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
+
+    # ── 单例锁（同一工作区只能跑一个实例）──
+    daemon_dir = Path(args.output_dir).parent
+    lock_path = daemon_dir / ".cron_daemon.lock"
+    _acquire_singleton_lock(str(lock_path))
+
+    # ── 状态文件路径（外部只读监控用）──
+    status_path = str(daemon_dir / ".cron_daemon.status.json")
+    _write_status(status_path, "RUNNING", 0, None)
+
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
@@ -198,34 +282,78 @@ def main(argv: list[str] | None = None) -> None:
         f"  log dir:     {args.output_dir}\n"
         f"  sessions:    {_sessions_json_for(agent_id)}\n"
         f"  openclaw 4.5 | agent: {agent_id}\n"
+        f"  status cmd:  {status_cmd or '(none)'}{'' if args.no_skip_if_idle else ' | 前置检查开启'}\n"
     )
 
     round_num = 0
+    consecutive_skips = 0
     while True:
-        round_num += 1
-        session_id = f"cron-{int(time.time())}-{os.getpid()}"
+        rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+        round_num = rn
+        consecutive_skips = cs
 
-        trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
 
-        # 执行 agent turn
-        success, output = run_agent(
-            message=prompt,
-            session_id=session_id,
-            timeout=timeout_seconds,
-        )
+def _loop_body(
+    args, status_cmd, status_path, interval_seconds, interval_minutes,
+    prompt, agent_id, timeout_seconds,
+    round_num: int, consecutive_skips: int,
+) -> tuple[int, int]:
+    """执行一轮 cron。返回 (next_round_num, next_consecutive_skips)。"""
+    session_id = f"cron-{int(time.time())}-{os.getpid()}"
+    trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
-        # 存日志
-        save_log(args.output_dir, session_id, success, output)
+    # ── 前置检查：worker 状态 ────────────────────────────────────
+    if status_cmd and not args.no_skip_if_idle:
+        try:
+            r = subprocess.run(
+                [str(status_cmd)],
+                capture_output=True, text=True, timeout=10,
+            )
+            bb_status = r.stdout.strip()
+            if bb_status != "ACTIVE":
+                consecutive_skips += 1
+                if consecutive_skips <= 3:
+                    round_num += 1
+                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
+                # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
+                _interruptible_sleep(interval_seconds, status_path)
+                return (round_num, consecutive_skips)  # 跳过本轮
+        except FileNotFoundError:
+            print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
+        except Exception as e:
+            print(f"[WARN] bb-status-cmd 执行失败: {e}，放行执行", file=sys.stderr)
 
-        # 焚毁 session
-        cleanse_session(session_id, agent_id)
+    # 执行 agent turn（或未启用前置检查）时才到这里
+    round_num += 1
+    consecutive_skips = 0
+    print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
 
-        print(f"  session: {session_id} | {'OK' if success else 'FAIL'} | 日志已保存")
+    # 执行 agent turn
+    success, output = run_agent(
+        message=prompt,
+        session_id=session_id,
+        timeout=timeout_seconds,
+    )
 
-        # 等下一轮（从上一次执行完开始算）
-        print(f"  等待 {interval_minutes} 分钟 ...\n")
-        time.sleep(interval_seconds)
+    agent_status = "OK" if success else "FAIL"
+
+    # 写状态（agent 刚跑完 → RUNNING）
+    _write_status(status_path, "RUNNING", round_num, agent_status)
+
+    # 存日志
+    save_log(args.output_dir, session_id, success, output)
+
+    # 焚毁 session
+    cleanse_session(session_id, agent_id)
+
+    print(f"  session: {session_id} | {agent_status} | 日志已保存")
+
+    # 等下一轮前标记为 SLEEPING
+    _write_status(status_path, "SLEEPING", round_num, agent_status)
+    print(f"  等待 {interval_minutes} 分钟 ...\n")
+    _interruptible_sleep(interval_seconds, status_path)
+    return (round_num, consecutive_skips)
 
 
 if __name__ == "__main__":
