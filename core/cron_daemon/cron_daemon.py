@@ -16,9 +16,11 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
 
 特性:
   - 可选前置检查 worker 状态：非 ACTIVE 时自动跳过本轮，不浪费 token
+  - 单例锁（fcntl.flock）：同一工作区只能运行一个实例
 """
 
 import argparse
+import fcntl
 import json
 import os
 import subprocess
@@ -192,6 +194,25 @@ def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None
     filepath.write_text(content, encoding="utf-8")
 
 
+def _acquire_singleton_lock(lock_path: str) -> int:
+    """获取单例文件锁。返回 fd，进程退出时 OS 自动释放。"""
+    lf = Path(lock_path)
+    lf.parent.mkdir(parents=True, exist_ok=True)
+    fd = lf.open("w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, BlockingIOError):
+        fd.close()
+        print(
+            f"[FATAL] 已有 cron_daemon 实例运行 (lock: {lock_path})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    fd.write(f"{os.getpid()}\n")
+    fd.flush()
+    return fd
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.interval:
@@ -206,6 +227,10 @@ def main(argv: list[str] | None = None) -> None:
     timeout_seconds = args.timeout
 
     status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
+
+    # ── 单例锁（同一工作区只能跑一个实例）──
+    lock_path = Path(args.output_dir).parent / ".cron_daemon.lock"
+    _acquire_singleton_lock(str(lock_path))
 
     print(
         f"[cron_daemon] 启动\n"
@@ -234,7 +259,7 @@ def main(argv: list[str] | None = None) -> None:
                 )
                 status = r.stdout.strip()
                 if status != "ACTIVE":
-                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {status}，非 ACTIVE")
+                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {status}，非 ACTIVE（无日志写入）")
                     time.sleep(interval_seconds)
                     continue
             except FileNotFoundError:
