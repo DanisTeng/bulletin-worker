@@ -200,6 +200,7 @@ def deploy_cron_daemon(config: dict) -> str:
 
     print(f"\n📍 cron_daemon 已部署到: {dst_dir}")
     print(f"   启动: cd {dst_dir} && ./run_cron_daemon.sh")
+    print(f"   退出: 在终端按 q 键（无需回车）")
 
     return dst_dir
 
