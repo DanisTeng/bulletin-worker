@@ -5,12 +5,10 @@ core/cron_daemon/render.py — 渲染 cron_daemon 到工作区
 1. 用 pyinstaller --onefile 把 cron_daemon.py 打成独立 ELF
 2. 从 output/PROMPT.md 拷贝到目标目录（复用已有的 prompt 渲染成果）
 3. 创建 cron_log/ 子目录
+4. 生成 run_cron_daemon.sh wrapper（从 config.json 填充参数）
 
 输出目录: $worker_workspace/user_tools/cron_daemon/，完全自包含
-用户直接在该目录下执行 ./cron_daemon -p PROMPT.md -i 5 -t 900
-
-cron_daemon.py 硬编码了 OpenClaw v4.5 的 sessions.json 路径，不再接受
---openclaw-path / --state-dir / --sessions-json / --agent-id 参数。
+用户直接在该目录下执行 ./run_cron_daemon.sh 启动。
 """
 
 import json
@@ -102,6 +100,47 @@ def _cleanup_build(work_dir: str):
             os.remove(os.path.join(work_dir, f))
 
 
+# ── sh wrapper 渲染 ──────────────────────────────────────────
+
+
+def _render_run_sh(config: dict, dst_dir: str) -> str:
+    """生成 run_cron_daemon.sh，从 config.json 填充所有参数。"""
+    cron = config.get("cron_daemon", {})
+    interval = cron.get("interval_minutes", 5)
+    timeout = cron.get("timeout_seconds", 600)
+    enable_status_check = cron.get("enable_status_check", True)
+    skip_if_idle = cron.get("skip_if_idle", True)
+
+    # 使用相对路径（wrapper cd 到 daemon 目录后）
+    args = (
+        f'--prompt ./PROMPT.md '
+        f'--interval {interval} '
+        f'--timeout {timeout} '
+        f'--output-dir ./cron_log'
+    )
+
+    if enable_status_check:
+        # daemon_dir = user_tools/cron_daemon/ → ../tools/bb-get-status
+        if skip_if_idle:
+            args += ' --bb-status-cmd ../tools/bb-get-status'
+        else:
+            args += ' --bb-status-cmd ../tools/bb-get-status --no-skip-if-idle'
+
+    script = f"""#!/bin/bash
+# run_cron_daemon.sh — 由 core/cron_daemon/render.py 自动生成
+set -euo pipefail
+cd "$(dirname "$0")"
+exec ./cron_daemon {args}
+"""
+
+
+    sh_path = os.path.join(dst_dir, "run_cron_daemon.sh")
+    with open(sh_path, "w") as f:
+        f.write(script)
+    _make_executable(sh_path)
+    return sh_path
+
+
 # ── 部署 ────────────────────────────────────────────────────────
 
 
@@ -150,11 +189,15 @@ def deploy_cron_daemon(config: dict) -> str:
     os.makedirs(log_dir, exist_ok=True)
     print(f"   ✅ cron_log/ → {log_dir}")
 
+    # 4. 生成 run_cron_daemon.sh wrapper
+    sh_path = _render_run_sh(config, dst_dir)
+    print(f"   ✅ {sh_path}")
+
     # 清理构建中间产物
     _cleanup_build(BUILD_DIR)
 
     print(f"\n📍 cron_daemon 已部署到: {dst_dir}")
-    print(f"   运行: cd {dst_dir} && ./cron_daemon -p PROMPT.md -i 5 -t 900")
+    print(f"   启动: cd {dst_dir} && ./run_cron_daemon.sh")
 
     return dst_dir
 

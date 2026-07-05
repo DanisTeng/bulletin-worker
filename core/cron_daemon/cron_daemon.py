@@ -11,12 +11,15 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
   - gateway 崩了就跟着崩（不自动重启）
 
 用法:
-  ./cron_daemon -p PROMPT.md -i 5 -t 900
-  ./cron_daemon -p PROMPT.md -i 10 -t 600 -o ./cron_log
+  ./cron_daemon -p PROMPT.md -i 5 -t 600
+  ./cron_daemon -p PROMPT.md -i 5 -t 600 -s ../bb-get-status
+
+所有路径/参数由 sh wrapper（run_cron_daemon.sh）自动填充。
 
 特性:
   - 可选前置检查 worker 状态：非 ACTIVE 时自动跳过本轮，不浪费 token
   - 单例锁（fcntl.flock）：同一工作区只能运行一个实例
+  - 状态文件 .cron_daemon.status.json 供外部只读监控
 """
 
 import argparse
@@ -44,22 +47,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "-p", "--prompt",
         type=str,
-        default="PROMPT.md",
-        help="提示词文件路径（默认同目录下 PROMPT.md）",
+        required=True,
+        metavar="PATH",
+        help="提示词文件路径（必填）",
     )
     p.add_argument(
         "-i", "--interval",
         type=int,
-        default=5,
+        required=True,
         metavar="MINUTES",
-        help="执行间隔，分钟（默认 5）",
+        help="执行间隔，分钟（必填）",
     )
     p.add_argument(
         "-t", "--timeout",
         type=int,
-        default=600,
+        required=True,
         metavar="SECONDS",
-        help="单次 agent 超时，秒（默认 600）",
+        help="单次 agent 超时，秒（必填）",
     )
     p.add_argument(
         "-o", "--output-dir",
@@ -78,14 +82,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "-s", "--bb-status-cmd",
         type=str,
-        default="../bb-get-status",
+        default=None,
         metavar="PATH",
-        help="bb-get-status 可执行路径（默认 ../bb-get-status）",
+        help="bb-get-status 可执行路径（不传则不启用前置检查）",
     )
     p.add_argument(
         "--no-skip-if-idle",
         action="store_true",
-        help="跳过——即使 worker 非 ACTIVE 也执行 agent turn（默认启用前置检查）",
+        help="跳过——即使 worker 非 ACTIVE 也执行 agent turn",
     )
     return p.parse_args(argv)
 
@@ -235,6 +239,10 @@ def main(argv: list[str] | None = None) -> None:
         print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
         sys.exit(1)
 
+    # 在顶层声明，给 __main__ 的 except 用
+    global _g_status_path
+    _g_status_path = None
+
     prompt = load_prompt(args.prompt)
     agent_id = args.agent
 
@@ -251,6 +259,7 @@ def main(argv: list[str] | None = None) -> None:
 
     # ── 状态文件路径（外部只读监控用）──
     status_path = str(daemon_dir / ".cron_daemon.status.json")
+    _g_status_path = status_path
     _write_status(status_path, "RUNNING", 0, None)
 
     print(
@@ -317,5 +326,17 @@ def main(argv: list[str] | None = None) -> None:
         time.sleep(interval_seconds)
 
 
+_g_status_path: str | None = None
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        if _g_status_path:
+            try:
+                _write_status(_g_status_path, "STOPPED", 0, None)
+            except Exception:
+                pass
+        print("\n[cron_daemon] 已停止")
+        sys.exit(0)

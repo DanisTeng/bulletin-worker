@@ -9,5 +9,11 @@
   ],
   "max_recent_lines": 20,
   "blocking_number": 3,
-  "max_num_sub_task": 5
+  "max_num_sub_task": 5,
+  "cron_daemon": {
+    "interval_minutes": 5,
+    "timeout_seconds": 600,
+    "enable_status_check": true,
+    "skip_if_idle": true
+  }
 }
