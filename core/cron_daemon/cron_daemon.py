@@ -92,6 +92,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="跳过——即使 worker 非 ACTIVE 也执行 agent turn",
     )
+    p.add_argument(
+        "--stop-file",
+        type=str,
+        default=".cron_daemon.stop",
+        metavar="PATH",
+        help="停止标记文件路径（存在该文件时本轮完成后退出）",
+    )
     return p.parse_args(argv)
 
 
@@ -194,7 +201,7 @@ def _write_status(status_path: str, status: str, round_num: int,
 
 
 def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
-    """可中断的 sleep——每秒检查 stdin，按 'q' 则退出（不走 SIGTERM 优雅流程）。"""
+    """可中断的 sleep——每秒检查 stdin，按 'q' 则退出。"""
     for _ in range(seconds):
         try:
             if select.select([sys.stdin], [], [], 0)[0]:
@@ -205,7 +212,7 @@ def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
                     print("\n[cron_daemon] 已停止")
                     sys.exit(0)
         except (InterruptedError, OSError):
-            pass  # SIGTERM 中断了 select，下次循环再检查 flag
+            pass
         time.sleep(1)
 
 
@@ -274,13 +281,18 @@ def main(argv: list[str] | None = None) -> None:
     status_path = str(daemon_dir / ".cron_daemon.status.json")
     _write_status(status_path, "RUNNING", 0, None)
 
-    # ── SIGTERM handler ──
-    # 不直接 exit，设 flag 等当前轮次自然结束
-    _sigterm_received = [False]  # list 绕 closure 赋值限制
+    # ── 停止标记文件路径 ──
+    stop_path = Path(args.stop_file)
+    if not stop_path.is_absolute():
+        stop_path = daemon_dir / args.stop_file
 
+    # ── SIGTERM handler（向后兼容，转为创建 stop 文件）──
     def _sigterm_handler(signum, frame):
-        _sigterm_received[0] = True
-        print("\n[cron_daemon] 收到 SIGTERM，本轮完成后退出...")
+        print("\n[cron_daemon] 收到 SIGTERM，创建停止标记...")
+        try:
+            stop_path.touch()
+        except OSError:
+            pass
     signal.signal(signal.SIGTERM, _sigterm_handler)
 
     print(
@@ -297,10 +309,11 @@ def main(argv: list[str] | None = None) -> None:
     round_num = 0
     consecutive_skips = 0
     while True:
-        # ── 检查 SIGTERM flag ──
-        if _sigterm_received[0]:
+        # ── 检查停止标记文件（比信号更可控）──
+        if stop_path.exists():
             _write_status(status_path, "STOPPED", round_num, None)
-            print("[cron_daemon] 已停止")
+            stop_path.unlink(missing_ok=True)
+            print("[cron_daemon] 停止标记文件存在，退出")
             break
 
         rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)

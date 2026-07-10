@@ -108,23 +108,17 @@ def _ensure_daemon(daemon_dir: Path) -> bool:
 def _stop_daemon():
     """停止 cron_daemon 进程。
 
-    向 daemon 进程发 SIGTERM。daemon 的 signal handler
-    会写 STOPPED 状态后退出。
+    创建 .cron_daemon.stop 标记文件。daemon 每轮循环入口
+    检查该文件，存在则等本轮完成后优雅退出。
     """
     if _daemon_dir is None:
         return
-    lock = _daemon_dir / ".cron_daemon.lock"
-    if lock.exists():
-        try:
-            pid_str = lock.read_text().strip()
-            if pid_str:
-                pid = int(pid_str)
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass  # 进程已死
-        except (ValueError, OSError):
-            pass
+    stop_file = _daemon_dir / ".cron_daemon.stop"
+    try:
+        stop_file.touch()
+        print(f"  → 已创建停止标记: {stop_file}")
+    except OSError:
+        pass
 
 
 def _read_daemon_status() -> dict | None:

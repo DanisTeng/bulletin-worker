@@ -143,6 +143,23 @@ exec ./cron_daemon {args}
     return sh_path
 
 
+def _render_stop_sh(dst_dir: str) -> str:
+    """生成 stop_cron_daemon.sh——创建 .cron_daemon.stop 标记文件。"""
+    script = """#!/bin/bash
+# stop_cron_daemon.sh — 由 core/cron_daemon/render.py 自动生成
+# 创建 .cron_daemon.stop 标记文件，cron_daemon 在下轮循环入口检测到后优雅退出
+set -euo pipefail
+cd "$(dirname "$0")"
+touch .cron_daemon.stop
+echo "✅ 停止标记已创建，cron_daemon 将在当前轮次完成后退出"
+"""
+    sh_path = os.path.join(dst_dir, "stop_cron_daemon.sh")
+    with open(sh_path, "w") as f:
+        f.write(script)
+    _make_executable(sh_path)
+    return sh_path
+
+
 # ── 部署 ────────────────────────────────────────────────────────
 
 
@@ -195,12 +212,17 @@ def deploy_cron_daemon(config: dict) -> str:
     sh_path = _render_run_sh(config, dst_dir)
     print(f"   ✅ {sh_path}")
 
+    # 5. 生成 stop_cron_daemon.sh
+    stop_sh = _render_stop_sh(dst_dir)
+    print(f"   ✅ {stop_sh}")
+
     # 清理构建中间产物
     _cleanup_build(BUILD_DIR)
 
     print(f"\n📍 cron_daemon 已部署到: {dst_dir}")
     print(f"   启动: cd {dst_dir} && ./run_cron_daemon.sh")
-    print(f"   退出: 在终端按 q 键（无需回车）")
+    print(f"   停止: cd {dst_dir} && ./stop_cron_daemon.sh")
+    print(f"   退出 (终端有 stdin): 按 q 键（无需回车）")
 
     return dst_dir
 
