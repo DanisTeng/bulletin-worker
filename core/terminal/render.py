@@ -100,16 +100,16 @@ def _cleanup_build(work_dir: str):
 
 
 def _render_run_sh(config: dict, dst_dir: str) -> str:
-    """生成 run_terminal.sh，从 config.json 填充 --daemon-dir。"""
+    """生成 run_terminal.sh，从 config.json 填充参数。"""
     ws = config["worker_workspace"]
-    # cron_daemon 目录 = $worker_workspace/user_tools/cron_daemon
+    tz = config.get("timezone", "Asia/Shanghai")
     daemon_dir = os.path.join(ws, "user_tools", "cron_daemon")
 
     script = f"""#!/bin/bash
 # run_terminal.sh — 由 core/terminal/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./terminal --daemon-dir "{daemon_dir}"
+exec ./terminal --daemon-dir "{daemon_dir}" --timezone "{tz}"
 """
 
     sh_path = os.path.join(dst_dir, "run_terminal.sh")

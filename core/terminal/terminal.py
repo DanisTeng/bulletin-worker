@@ -24,6 +24,7 @@ import textwrap
 import time
 from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
@@ -51,6 +52,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="DIR",
         help="cron_daemon 部署目录（含 cron_daemon ELF、.cron_daemon.status.json）",
     )
+    p.add_argument(
+        "--timezone",
+        type=str,
+        default="Asia/Shanghai",
+        metavar="TZ",
+        help="显示时区（IANA 格式，如 Asia/Hong_Kong），默认 Asia/Shanghai",
+    )
 
     return p.parse_args(argv)
 
@@ -62,6 +70,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 _daemon_dir: Path | None = None
 _status_json: Path | None = None
+_tz: ZoneInfo = ZoneInfo("Asia/Shanghai")
 
 
 def _ensure_daemon(daemon_dir: Path) -> bool:
@@ -183,7 +192,7 @@ class Terminal(App):
 
     def _update_clock(self):
         self.query_one("#clock", Label).update(
-            datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            datetime.now(_tz).strftime("%H:%M:%S")
         )
 
     def _update_status(self):
@@ -204,8 +213,11 @@ class Terminal(App):
 
         if latest_ts:
             try:
-                dt = datetime.fromisoformat(latest_ts)
-                latest_ts = dt.strftime("%H:%M:%S")
+                dt_utc = datetime.fromisoformat(latest_ts)
+                if dt_utc.tzinfo is None:
+                    dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
+                dt_local = dt_utc.astimezone(_tz)
+                latest_ts = dt_local.strftime("%H:%M:%S")
             except ValueError:
                 pass
 
@@ -246,6 +258,8 @@ def main(argv: list[str] | None = None):
     _args = parse_args(argv)
     _daemon_dir = Path(_args.daemon_dir).resolve()
     _status_json = _daemon_dir / ".cron_daemon.status.json"
+    global _tz
+    _tz = ZoneInfo(_args.timezone)
 
     app = Terminal()
 
