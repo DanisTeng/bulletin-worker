@@ -194,18 +194,18 @@ def _write_status(status_path: str, status: str, round_num: int,
 
 
 def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
-    """可中断的 sleep——每秒检查 stdin，按 'q' 则写 STOPPED 后退出。"""
+    """可中断的 sleep——每秒检查 stdin，按 'q' 则退出（不走 SIGTERM 优雅流程）。"""
     for _ in range(seconds):
-        if select.select([sys.stdin], [], [], 0)[0]:
-            try:
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
                 ch = sys.stdin.read(1)
                 if ch == "q":
                     if status_path:
                         _write_status(status_path, "STOPPED", 0, None)
                     print("\n[cron_daemon] 已停止")
                     sys.exit(0)
-            except Exception:
-                pass
+        except (InterruptedError, OSError):
+            pass  # SIGTERM 中断了 select，下次循环再检查 flag
         time.sleep(1)
 
 
@@ -274,6 +274,15 @@ def main(argv: list[str] | None = None) -> None:
     status_path = str(daemon_dir / ".cron_daemon.status.json")
     _write_status(status_path, "RUNNING", 0, None)
 
+    # ── SIGTERM handler ──
+    # 不直接 exit，设 flag 等当前轮次自然结束
+    _sigterm_received = [False]  # list 绕 closure 赋值限制
+
+    def _sigterm_handler(signum, frame):
+        _sigterm_received[0] = True
+        print("\n[cron_daemon] 收到 SIGTERM，本轮完成后退出...")
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
@@ -288,6 +297,12 @@ def main(argv: list[str] | None = None) -> None:
     round_num = 0
     consecutive_skips = 0
     while True:
+        # ── 检查 SIGTERM flag ──
+        if _sigterm_received[0]:
+            _write_status(status_path, "STOPPED", round_num, None)
+            print("[cron_daemon] 已停止")
+            break
+
         rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
         round_num = rn
         consecutive_skips = cs

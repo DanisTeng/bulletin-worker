@@ -105,6 +105,28 @@ def _ensure_daemon(daemon_dir: Path) -> bool:
         return False
 
 
+def _stop_daemon():
+    """停止 cron_daemon 进程。
+
+    向 daemon 进程发 SIGTERM。daemon 的 signal handler
+    会写 STOPPED 状态后退出。
+    """
+    if _daemon_dir is None:
+        return
+    lock = _daemon_dir / ".cron_daemon.lock"
+    if lock.exists():
+        try:
+            pid_str = lock.read_text().strip()
+            if pid_str:
+                pid = int(pid_str)
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass  # 进程已死
+        except (ValueError, OSError):
+            pass
+
+
 def _read_daemon_status() -> dict | None:
     """读取 .cron_daemon.status.json。"""
     if _status_json and _status_json.exists():
@@ -235,7 +257,7 @@ def main(argv: list[str] | None = None):
 
     sigs = (signal.SIGINT, signal.SIGTERM)
     for sig in sigs:
-        signal.signal(sig, lambda s, f: app.exit())
+        signal.signal(sig, lambda s, f: (_stop_daemon(), app.exit()))
 
     app.run()
 
