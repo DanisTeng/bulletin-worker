@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""
+terminal — Bulletin Worker 交互式终端
+
+职责:
+  - 自动拉起 cron_daemon 单例（路径由渲染逻辑推导）
+  - 20Hz 主循环，读取 .cron_daemon.status.json 显示状态
+  - 预留 board 交互输入区（暂不实现）
+
+架构:
+  仿照 terminal_test.py 的 Textual 架构，继承 TerminalTest 基类。
+
+用法:
+  python3 terminal
+
+依赖: textual (pip install textual)
+
+路径推导说明:
+  terminal 自身路径在 worker_workspace/user_tools/cron_daemon/terminal
+  cron_daemon ELF 在同目录下: ./cron_daemon
+  cron_daemon 的状态文件:    ./.cron_daemon.status.json
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import textwrap
+import time
+from datetime import datetime
+from pathlib import Path
+
+from textual.app import App, ComposeResult
+from textual.containers import Horizontal, VerticalScroll
+from textual.widgets import Footer, Label, Static, TextArea
+
+# 数据源路径（在 setup 中按实际位置推导）
+DAEMON_DIR: Path | None = None
+STATUS_JSON: Path | None = None
+CRON_DAEMON_ELF: Path | None = None
+
+# TICK
+TICK_INTERVAL = 1 / 20  # 20Hz
+
+# ── 路径推导 ──────────────────────────────────────────────────
+
+
+def _resolve_daemon_dir() -> Path:
+    """
+    根据自身路径推导 cron_daemon 目录。
+
+    terminal 脚本放在 worker_workspace/user_tools/cron_daemon/terminal，
+    所以 daemon 目录就是终端脚本的父目录。
+    """
+    this = Path(sys.argv[0]).resolve()
+    if this.is_file() and this.suffix == ".py":
+        return this.parent
+    # fallback: 如果是从 cwd 执行的 sh wrapper 等情况
+    return Path.cwd().resolve()
+
+
+# ── daemon 进程管理 ──────────────────────────────────────────
+
+_daemon_process: subprocess.Popen | None = None
+
+
+def _ensure_daemon(daemon_dir: Path) -> bool:
+    """
+    确保 cron_daemon 单例在运行。
+
+    返回 True 表示 daemon 已就绪（之前已在运行或已成功启动），
+    False 表示启动失败。
+    """
+    global _daemon_process
+
+    elf = daemon_dir / "cron_daemon"
+    wrapper = daemon_dir / "run_cron_daemon.sh"
+
+    # 1. 检查是否已有 daemon 实例（通过单例锁文件）
+    lock = daemon_dir / ".cron_daemon.lock"
+    if lock.exists():
+        try:
+            # lock 文件存在且 flock 仍然持有 = daemon 活着
+            # 尝试读 pid 检查进程是否存在
+            pid_str = lock.read_text().strip()
+            if pid_str:
+                pid = int(pid_str)
+                try:
+                    os.kill(pid, 0)  # 检查进程是否存在
+                    # daemon 活着，直接返回
+                    # 注意：状态文件可能还在但 daemon 在 sleep 中，这没问题
+                    return True
+                except (OSError, ProcessLookupError):
+                    pass  # daemon 死了，锁文件是残留
+        except (ValueError, OSError):
+            pass  # 文件格式不对，当作无锁处理
+
+    # 2. 启动新 daemon
+    if not elf.exists():
+        print(f"[FATAL] cron_daemon ELF 不存在: {elf}", file=sys.stderr)
+        return False
+
+    # 用 run_cron_daemon.sh 启动（包含所有参数）
+    cmd = [str(wrapper)] if wrapper.exists() else [str(elf)]
+    try:
+        _daemon_process = subprocess.Popen(
+            cmd,
+            cwd=str(daemon_dir),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            # 新进程组，terminal 退出时不自动杀 daemon
+            start_new_session=True,
+        )
+        # 等一会儿让 daemon 初始化
+        time.sleep(0.5)
+        return True
+    except Exception as e:
+        print(f"[FATAL] 启动 cron_daemon 失败: {e}", file=sys.stderr)
+        return False
+
+
+def _cleanup_daemon():
+    """terminal 退出时不做任何事——daemon 保持运行。"""
+    pass
+
+
+# ── 读取状态 ──────────────────────────────────────────────────
+
+
+def _read_daemon_status() -> dict | None:
+    """读取 .cron_daemon.status.json，返回 dict 或 None。"""
+    if STATUS_JSON and STATUS_JSON.exists():
+        try:
+            with open(STATUS_JSON, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+# ── App ───────────────────────────────────────────────────────
+
+
+class Terminal(App):
+    """Bulletin Worker 交互式终端。
+
+    20Hz 主循环，显示 daemon 状态，预留 board 交互区。
+    """
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+
+    #header_bar {
+        height: 1;
+        background: $primary;
+        color: $text;
+        padding: 0 1;
+    }
+
+    #daemon_status_area {
+        height: 3;
+        border: solid $secondary;
+        margin: 1 1 0 1;
+        padding: 0 1;
+    }
+
+    #msg_area {
+        height: 1fr;
+        border: solid $secondary;
+        margin: 0 1 0 1;
+        padding: 0 1;
+        overflow-y: scroll;
+        scrollbar-gutter: stable;
+    }
+
+    #msg_content {
+        width: 100%;
+    }
+
+    TextArea {
+        height: 5;
+        margin: 1 1;
+        border: solid $accent;
+    }
+
+    Footer {
+        height: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Horizontal(
+            Label("terminal  |  bulletin worker"),
+            Label("", id="clock"),
+            Label("  |  Ctrl+D 提交  |  Ctrl+C 退出"),
+            id="header_bar",
+        )
+        yield Static("", id="daemon_status_area")
+        yield VerticalScroll(Static("", id="msg_content"), id="msg_area")
+        yield TextArea("", id="input", soft_wrap=True)
+        yield Footer()
+
+    def on_mount(self):
+        """初始化状态、启动 20Hz 定时器、聚焦输入框。"""
+        # 检查 daemon
+        daemon_ok = _ensure_daemon(DAEMON_DIR)
+        self._daemon_ok = daemon_ok
+        self._daemon_warned = not daemon_ok
+
+        self._messages: list[str] = []
+        self.set_interval(TICK_INTERVAL, self.tick)
+        self.query_one("#input", TextArea).focus()
+        self._update_clock()
+        self._update_status()
+
+    def on_key(self, event):
+        """处理 Ctrl 快捷键。"""
+        if event.key == "ctrl+d":
+            self._on_ctrl_d()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "ctrl+c":
+            self.exit()
+
+    # ── tick: 20Hz ──
+
+    def tick(self) -> None:
+        """20Hz 主循环。刷新时钟和 daemon 状态。"""
+        self._update_clock()
+        self._update_status()
+
+    def _update_clock(self):
+        now = datetime.now()
+        ts = now.strftime("%H:%M:%S.%f")[:-3]
+        self.query_one("#clock", Label).update(ts)
+
+    def _update_status(self) -> None:
+        """读取并显示 daemon 状态栏。"""
+        status = _read_daemon_status()
+        if status is None:
+            if not self._daemon_warned:
+                self.query_one("#daemon_status_area", Static).update(
+                    "[WARN] cron_daemon 状态文件未就绪"
+                )
+                self._daemon_warned = True
+            return
+
+        daemon_st = status.get("daemon_status", "?")
+        round_num = status.get("round", 0)
+        agent_st = status.get("latest_agent_status", "—")
+        latest_ts = status.get("latest_round_at", "")
+        pid = status.get("pid", 0)
+
+        # 格式化时间（ISO → 本地 HH:MM:SS）
+        if latest_ts and latest_ts.endswith("+"):
+            try:
+                dt = datetime.fromisoformat(latest_ts)
+                latest_ts = dt.strftime("%H:%M:%S")
+            except ValueError:
+                latest_ts = latest_ts[-8:] if len(latest_ts) >= 8 else latest_ts
+
+        # 运行状态图标
+        run_icon = "🟢" if daemon_st in ("RUNNING", "SLEEPING") else "🔴"
+
+        lines = (
+            f"  {run_icon} daemon: {daemon_st}  "
+            f"|  round: {round_num}  "
+            f"|  latest: {agent_st}  "
+            f"|  at: {latest_ts}  "
+            f"|  pid: {pid}"
+        )
+
+        self.query_one("#daemon_status_area", Static).update(lines)
+
+    # ── Ctrl+D: 预留 board 交互 ──
+
+    def _on_ctrl_d(self) -> None:
+        """Ctrl+D 按下时的回调。预留——后续做 leader post。
+
+        当前行为：将输入内容显示到留言展示区（模拟测试）。
+        """
+        textarea = self.query_one("#input", TextArea)
+        text = textarea.text.strip()
+        if not text:
+            return
+
+        # ── 预留: 后续在这里实现 board 交互 ──
+        # TODO: 实现 leader post / 命令体系
+        #   参考 DESIGN.md: /status, /recent N, /exec, /help, /quit
+        #   bb_board.py post 接口: echo "text" | bb_board.py <board> post <name>
+
+        ts = datetime.now().strftime("%H:%M:%S")
+        prefix = f"{ts}  [预留]  "
+        indent = " " * len(prefix)
+        display = prefix + textwrap.indent(text, indent).lstrip()
+        self._messages.append(display)
+        self.query_one("#msg_content", Static).update("\n".join(self._messages))
+        self.query_one("#msg_area", VerticalScroll).scroll_end(animate=False)
+
+        textarea.text = ""
+
+
+# ── 入口 ──────────────────────────────────────────────────────
+
+
+def main():
+    global DAEMON_DIR, STATUS_JSON, CRON_DAEMON_ELF
+
+    DAEMON_DIR = _resolve_daemon_dir()
+    STATUS_JSON = DAEMON_DIR / ".cron_daemon.status.json"
+    CRON_DAEMON_ELF = DAEMON_DIR / "cron_daemon"
+
+    print(f"📍 cron_daemon 目录: {DAEMON_DIR}")
+    print(f"📋 状态文件:         {STATUS_JSON}")
+    print(f"⚙️   ELF:            {CRON_DAEMON_ELF}")
+    print()
+
+    app = Terminal()
+
+    # 捕获退出信号——只记录不杀 daemon
+    def _on_exit(sig, frame):
+        _cleanup_daemon()
+        app.exit()
+
+    signal.signal(signal.SIGINT, _on_exit)
+    signal.signal(signal.SIGTERM, _on_exit)
+
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
