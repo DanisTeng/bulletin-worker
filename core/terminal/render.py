@@ -102,14 +102,14 @@ def _cleanup_build(work_dir: str):
 def _render_run_sh(config: dict, dst_dir: str) -> str:
     """生成 run_terminal.sh，从 config.json 填充参数。"""
     ws = config["worker_workspace"]
-    tz = config.get("timezone", "Asia/Shanghai")
+    tz_offset = config.get("tz_offset", 8)
     daemon_dir = os.path.join(ws, "user_tools", "cron_daemon")
 
     script = f"""#!/bin/bash
 # run_terminal.sh — 由 core/terminal/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./terminal --daemon-dir "{daemon_dir}" --timezone "{tz}"
+exec ./terminal --daemon-dir "{daemon_dir}" --tz-offset {tz_offset}
 """
 
     sh_path = os.path.join(dst_dir, "run_terminal.sh")

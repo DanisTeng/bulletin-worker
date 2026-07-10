@@ -53,11 +53,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="cron_daemon 部署目录（含 cron_daemon ELF、.cron_daemon.status.json）",
     )
     p.add_argument(
-        "--timezone",
-        type=str,
-        default="Asia/Shanghai",
-        metavar="TZ",
-        help="显示时区（IANA 格式，如 Asia/Hong_Kong），默认 Asia/Shanghai",
+        "--tz-offset",
+        type=int,
+        default=8,
+        metavar="HOURS",
+        help="UTC 偏移小时数，如 +8（东八区），默认 8",
     )
 
     return p.parse_args(argv)
@@ -70,7 +70,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 _daemon_dir: Path | None = None
 _status_json: Path | None = None
-_tz: ZoneInfo = ZoneInfo("Asia/Shanghai")
+_tz_offset: int = 8
 
 
 def _ensure_daemon(daemon_dir: Path) -> bool:
@@ -112,6 +112,12 @@ def _ensure_daemon(daemon_dir: Path) -> bool:
     except Exception as e:
         print(f"[FATAL] 启动 cron_daemon 失败: {e}", file=sys.stderr)
         return False
+
+
+def _fixed_offset_tz(offset_hours: int) -> ZoneInfo:
+    """根据小时偏移构造固定 UTC 偏移时区。"""
+    sign = "+" if offset_hours >= 0 else ""
+    return ZoneInfo(f"Etc/GMT{sign}{-offset_hours}")  # Etc/GMT 符号反转
 
 
 def _stop_daemon():
@@ -192,7 +198,7 @@ class Terminal(App):
 
     def _update_clock(self):
         self.query_one("#clock", Label).update(
-            datetime.now(_tz).strftime("%H:%M:%S")
+            datetime.now(_fixed_offset_tz(_tz_offset)).strftime("%H:%M:%S")
         )
 
     def _update_status(self):
@@ -216,7 +222,7 @@ class Terminal(App):
                 dt_utc = datetime.fromisoformat(latest_ts)
                 if dt_utc.tzinfo is None:
                     dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
-                dt_local = dt_utc.astimezone(_tz)
+                dt_local = dt_utc.astimezone(_fixed_offset_tz(_tz_offset))
                 latest_ts = dt_local.strftime("%H:%M:%S")
             except ValueError:
                 pass
@@ -258,8 +264,8 @@ def main(argv: list[str] | None = None):
     _args = parse_args(argv)
     _daemon_dir = Path(_args.daemon_dir).resolve()
     _status_json = _daemon_dir / ".cron_daemon.status.json"
-    global _tz
-    _tz = ZoneInfo(_args.timezone)
+    global _tz_offset
+    _tz_offset = _args.tz_offset
 
     app = Terminal()
 
