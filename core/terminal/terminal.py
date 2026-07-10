@@ -24,7 +24,7 @@ import textwrap
 import time
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from datetime import timezone, timedelta
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
@@ -114,11 +114,6 @@ def _ensure_daemon(daemon_dir: Path) -> bool:
         return False
 
 
-def _fixed_offset_tz(offset_hours: int) -> ZoneInfo:
-    """根据小时偏移构造固定 UTC 偏移时区。"""
-    sign = "+" if offset_hours >= 0 else ""
-    return ZoneInfo(f"Etc/GMT{sign}{-offset_hours}")  # Etc/GMT 符号反转
-
 
 def _stop_daemon():
     """停止 cron_daemon 进程。
@@ -197,8 +192,9 @@ class Terminal(App):
         self._update_status()
 
     def _update_clock(self):
+        offset = timedelta(hours=_tz_offset)
         self.query_one("#clock", Label).update(
-            datetime.now(_fixed_offset_tz(_tz_offset)).strftime("%H:%M:%S")
+            datetime.now(timezone(offset)).strftime("%H:%M:%S")
         )
 
     def _update_status(self):
@@ -222,7 +218,8 @@ class Terminal(App):
                 dt_utc = datetime.fromisoformat(latest_ts)
                 if dt_utc.tzinfo is None:
                     dt_utc = dt_utc.replace(tzinfo=ZoneInfo("UTC"))
-                dt_local = dt_utc.astimezone(_fixed_offset_tz(_tz_offset))
+                offset = timedelta(hours=_tz_offset)
+                dt_local = dt_utc.astimezone(timezone(offset))
                 latest_ts = dt_local.strftime("%H:%M:%S")
             except ValueError:
                 pass
