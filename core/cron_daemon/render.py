@@ -224,6 +224,7 @@ def deploy_cron_daemon(config: dict) -> str:
     print(f"\n📍 cron_daemon 已部署到: {dst_dir}")
     print(f"   启动: cd {dst_dir} && ./run_cron_daemon.sh")
     print(f"   停止: cd {dst_dir} && ./stop_cron_daemon.sh")
+    print(f"   清理残局: cd {dst_dir} && ./clean_cron_daemon.sh")
     print(f"   退出 (终端有 stdin): 按 q 键（无需回车）")
 
     return dst_dir
