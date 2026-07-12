@@ -106,7 +106,7 @@ def _cleanup_build(work_dir: str):
 def _render_run_sh(config: dict, dst_dir: str) -> str:
     """生成 run_cron_daemon.sh，从 config.json 填充所有参数。"""
     cron = config.get("cron_daemon", {})
-    interval = cron.get("interval_minutes", 5)
+    interval = cron.get("interval_seconds", 300)
     timeout = cron.get("timeout_seconds", 600)
     enable_status_check = cron.get("enable_status_check", True)
     skip_if_idle = cron.get("skip_if_idle", True)

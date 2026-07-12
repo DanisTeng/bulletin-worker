@@ -4,15 +4,15 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
 
 独立进程，代替有 bug 的 OpenClaw 原生 cron。
 特性:
-  - 每隔 X 分钟跑一次，任务不重叠
+  - 每隔 X 秒跑一次，任务不重叠
   - 每次创建隔离 session，跑完即焚（刷掉 sessions.json + transcript）
   - 超时自行管理
   - agent 回复存日志文件
   - gateway 崩了就跟着崩（不自动重启）
 
 用法:
-  ./cron_daemon -p PROMPT.md -i 5 -t 600
-  ./cron_daemon -p PROMPT.md -i 5 -t 600 -s ../bb-get-status
+  ./cron_daemon -p PROMPT.md -i 300 -t 600
+  ./cron_daemon -p PROMPT.md -i 300 -t 600 -s ../bb-get-status
 
 所有路径/参数由 sh wrapper（run_cron_daemon.sh）自动填充。
 
@@ -56,8 +56,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-i", "--interval",
         type=int,
         required=True,
-        metavar="MINUTES",
-        help="执行间隔，分钟（必填）",
+        metavar="SECONDS",
+        help=
     )
     p.add_argument(
         "-t", "--timeout",
@@ -298,14 +298,13 @@ def _acquire_singleton_lock(lock_path: str) -> int:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.interval:
-        print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
+        print("[FATAL] , file=sys.stderr)
         sys.exit(1)
 
     prompt = load_prompt(args.prompt)
     agent_id = args.agent
 
-    interval_minutes = args.interval
-    interval_seconds = interval_minutes * 60
+    interval_seconds = args.interval
     timeout_seconds = args.timeout
 
     status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
@@ -329,7 +328,7 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
-        f"  interval:    {interval_minutes} 分钟 ({interval_seconds}s)\n"
+        f"  interval:    {interval_seconds} 秒\n"
         f"  timeout:     {timeout_seconds}s\n"
         f"  log dir:     {args.output_dir}\n"
         f"  sessions:    {_sessions_json_for(agent_id)}\n"
@@ -347,14 +346,14 @@ def main(argv: list[str] | None = None) -> None:
             print("[cron_daemon] 停止标记文件存在，退出")
             break
 
-        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
         round_num = rn
         consecutive_skips = cs
 
 
 def _loop_body(
     args, status_cmd, status_path, stop_path,
-    interval_seconds, interval_minutes,
+    interval_seconds,
     prompt, agent_id, timeout_seconds,
     round_num: int, consecutive_skips: int,
 ) -> tuple[int, int]:
@@ -416,7 +415,7 @@ def _loop_body(
 
     # 等下一轮前标记为 STANDBY（等待阶段，非 sleeping）
     _write_status(status_path, "STANDBY", round_num, agent_status)
-    print(f"  等待 {interval_minutes} 分钟 ...\n")
+    print(f"  等待 {interval_seconds} 秒 ...\n")
     _interruptible_sleep(interval_seconds, status_path, stop_path)
     return (round_num, consecutive_skips)
 
