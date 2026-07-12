@@ -7,6 +7,7 @@
     "/root/.openclaw/workspace/SOUL.md",
     "/root/.openclaw/workspace/AGENTS.md"
   ],
+  "tz_offset": 8,
   "max_recent_lines": 20,
   "blocking_number": 3,
   "max_num_sub_task": 50,

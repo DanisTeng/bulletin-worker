@@ -92,6 +92,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="跳过——即使 worker 非 ACTIVE 也执行 agent turn",
     )
+    p.add_argument(
+        "--stop-file",
+        type=str,
+        default=".cron_daemon.stop",
+        metavar="PATH",
+        help="停止标记文件路径（存在该文件时本轮完成后退出）",
+    )
     return p.parse_args(argv)
 
 
@@ -193,20 +200,43 @@ def _write_status(status_path: str, status: str, round_num: int,
     os.rename(tmp, status_path)
 
 
-def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
-    """可中断的 sleep——每秒检查 stdin，按 'q' 则写 STOPPED 后退出。"""
+def _interruptible_sleep(seconds: int, status_path: str = "", stop_path: Path | None = None) -> None:
+    """可中断的 sleep——每秒检查 stdin 或 stop 标记文件。
+
+    按 'q'    → 立即退出。
+    stop 文件 → 立即退出（由 _cleanup_lock / _stop_exit 统一处理）。
+    """
     for _ in range(seconds):
-        if select.select([sys.stdin], [], [], 0)[0]:
-            try:
+        try:
+            if select.select([sys.stdin], [], [], 0)[0]:
                 ch = sys.stdin.read(1)
                 if ch == "q":
-                    if status_path:
-                        _write_status(status_path, "STOPPED", 0, None)
-                    print("\n[cron_daemon] 已停止")
-                    sys.exit(0)
-            except Exception:
-                pass
+                    _stop_exit(status_path)
+        except (InterruptedError, OSError):
+            pass
+
+        # 检查 stop 标记文件（stop.sh 触发后秒退）
+        if stop_path and stop_path.exists():
+            _stop_exit(status_path)
+
         time.sleep(1)
+
+
+_stop_file: Path | None = None
+
+
+def _stop_exit(status_path: str = ""):
+    """写 STOPPED 状态、删 stop 标记、清理锁、退出进程。"""
+    if status_path:
+        _write_status(status_path, "STOPPED", 0, None)
+    if _stop_file:
+        try:
+            _stop_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+    print("\n[cron_daemon] 已停止")
+    _cleanup_lock()
+    sys.exit(0)
 
 
 def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None:
@@ -231,8 +261,23 @@ def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None
     filepath.write_text(content, encoding="utf-8")
 
 
+_lock_path: str | None = None
+
+
+def _cleanup_lock():
+    """清理 .cron_daemon.lock 文件。"""
+    global _lock_path
+    if _lock_path:
+        try:
+            Path(_lock_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _acquire_singleton_lock(lock_path: str) -> int:
     """获取单例文件锁。返回 fd，进程退出时 OS 自动释放。"""
+    global _lock_path
+    _lock_path = lock_path
     lf = Path(lock_path)
     lf.parent.mkdir(parents=True, exist_ok=True)
     fd = lf.open("w")
@@ -274,6 +319,13 @@ def main(argv: list[str] | None = None) -> None:
     status_path = str(daemon_dir / ".cron_daemon.status.json")
     _write_status(status_path, "RUNNING", 0, None)
 
+    # ── 停止标记文件路径 ──
+    stop_path = Path(args.stop_file)
+    if not stop_path.is_absolute():
+        stop_path = daemon_dir / args.stop_file
+    global _stop_file
+    _stop_file = stop_path
+
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
@@ -288,13 +340,21 @@ def main(argv: list[str] | None = None) -> None:
     round_num = 0
     consecutive_skips = 0
     while True:
-        rn, cs = _loop_body(args, status_cmd, status_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+        # ── 检查停止标记文件（比信号更可控）──
+        if stop_path.exists():
+            _write_status(status_path, "STOPPED", round_num, None)
+            stop_path.unlink(missing_ok=True)
+            print("[cron_daemon] 停止标记文件存在，退出")
+            break
+
+        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
         round_num = rn
         consecutive_skips = cs
 
 
 def _loop_body(
-    args, status_cmd, status_path, interval_seconds, interval_minutes,
+    args, status_cmd, status_path, stop_path,
+    interval_seconds, interval_minutes,
     prompt, agent_id, timeout_seconds,
     round_num: int, consecutive_skips: int,
 ) -> tuple[int, int]:
@@ -317,7 +377,7 @@ def _loop_body(
                     _write_status(status_path, "SLEEPING", round_num, "SKIP")
                     print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
                 # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
-                _interruptible_sleep(interval_seconds, status_path)
+                _interruptible_sleep(interval_seconds, status_path, stop_path)
                 return (round_num, consecutive_skips)  # 跳过本轮
         except FileNotFoundError:
             print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
@@ -352,7 +412,7 @@ def _loop_body(
     # 等下一轮前标记为 SLEEPING
     _write_status(status_path, "SLEEPING", round_num, agent_status)
     print(f"  等待 {interval_minutes} 分钟 ...\n")
-    _interruptible_sleep(interval_seconds, status_path)
+    _interruptible_sleep(interval_seconds, status_path, stop_path)
     return (round_num, consecutive_skips)
 
 
