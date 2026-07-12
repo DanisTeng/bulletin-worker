@@ -3,7 +3,7 @@
 core/terminal/render.py — 渲染 terminal TUI 到工作区
 
 1. pyinstaller --onefile 把 terminal.py 打成独立 ELF
-2. 生成 run_terminal.sh wrapper（从 config.json 填充 --daemon-dir）
+2. 生成 run_terminal.sh wrapper（从 config.json 填充 --tz-offset）
 
 输出目录: $worker_workspace/user_tools/terminal/，完全自包含
 用户直接在该目录下执行 ./run_terminal.sh 启动 TUI。
@@ -101,15 +101,13 @@ def _cleanup_build(work_dir: str):
 
 def _render_run_sh(config: dict, dst_dir: str) -> str:
     """生成 run_terminal.sh，从 config.json 填充参数。"""
-    ws = config["worker_workspace"]
     tz_offset = config.get("tz_offset", 8)
-    daemon_dir = os.path.join(ws, "user_tools", "cron_daemon")
 
     script = f"""#!/bin/bash
 # run_terminal.sh — 由 core/terminal/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./terminal --daemon-dir "{daemon_dir}" --tz-offset {tz_offset}
+exec ./terminal --tz-offset {tz_offset}
 """
 
     sh_path = os.path.join(dst_dir, "run_terminal.sh")

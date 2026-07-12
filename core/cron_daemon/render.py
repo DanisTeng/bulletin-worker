@@ -144,14 +144,16 @@ exec ./cron_daemon {args}
 
 
 def _render_stop_sh(dst_dir: str) -> str:
-    """生成 stop_cron_daemon.sh——创建 .cron_daemon.stop 标记文件。"""
+    """生成 stop_cron_daemon.sh——创建 .cron_daemon.stop 标记文件并清理锁文件。"""
     script = """#!/bin/bash
 # stop_cron_daemon.sh — 由 core/cron_daemon/render.py 自动生成
 # 创建 .cron_daemon.stop 标记文件，cron_daemon 在下轮循环入口检测到后优雅退出
+# 同时清理 .cron_daemon.lock 单例锁文件，确保下次能干净启动
 set -euo pipefail
 cd "$(dirname "$0")"
 touch .cron_daemon.stop
-echo "✅ 停止标记已创建，cron_daemon 将在当前轮次完成后退出"
+rm -f .cron_daemon.lock
+echo "✅ 停止标记已创建，锁已清理，cron_daemon 将在当前轮次完成后退出"
 """
     sh_path = os.path.join(dst_dir, "stop_cron_daemon.sh")
     with open(sh_path, "w") as f:

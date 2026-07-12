@@ -210,6 +210,7 @@ def _interruptible_sleep(seconds: int, status_path: str = "") -> None:
                     if status_path:
                         _write_status(status_path, "STOPPED", 0, None)
                     print("\n[cron_daemon] 已停止")
+                    _cleanup_lock()
                     sys.exit(0)
         except (InterruptedError, OSError):
             pass
@@ -285,15 +286,6 @@ def main(argv: list[str] | None = None) -> None:
     stop_path = Path(args.stop_file)
     if not stop_path.is_absolute():
         stop_path = daemon_dir / args.stop_file
-
-    # ── SIGTERM handler（向后兼容，转为创建 stop 文件）──
-    def _sigterm_handler(signum, frame):
-        print("\n[cron_daemon] 收到 SIGTERM，创建停止标记...")
-        try:
-            stop_path.touch()
-        except OSError:
-            pass
-    signal.signal(signal.SIGTERM, _sigterm_handler)
 
     print(
         f"[cron_daemon] 启动\n"
