@@ -337,7 +337,6 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     round_num = 0
-    consecutive_skips = 0
     while True:
         # ── 检查停止标记文件（比信号更可控）──
         if stop_path.exists():
@@ -346,18 +345,19 @@ def main(argv: list[str] | None = None) -> None:
             print("[cron_daemon] 停止标记文件存在，退出")
             break
 
-        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
-        round_num = rn
-        consecutive_skips = cs
+        round_num = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, prompt, agent_id, timeout_seconds, round_num)
 
 
 def _loop_body(
     args, status_cmd, status_path, stop_path,
     interval_seconds,
     prompt, agent_id, timeout_seconds,
-    round_num: int, consecutive_skips: int,
-) -> tuple[int, int]:
-    """执行一轮 cron。返回 (next_round_num, next_consecutive_skips)。"""
+    round_num: int,
+) -> int:
+    """执行一轮 cron。返回 next_round_num。
+
+    简化逻辑：初始检查发现是 IDLE 时直接跳过本轮，不增加轮次、不输出。
+    """
     session_id = f"cron-{int(time.time())}-{os.getpid()}"
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -373,16 +373,10 @@ def _loop_body(
             )
             bb_status = r.stdout.strip()
             if bb_status != "ACTIVE":
-                consecutive_skips += 1
-                if consecutive_skips <= 3:
-                    round_num += 1
-                    _write_status(status_path, "STANDBY", round_num, "SKIP")
-                    print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
-                else:
-                    # 超过 3 次连续 SKIP：静默，但状态保持 STANDBY
-                    _write_status(status_path, "STANDBY", round_num, "SKIP")
+                # IDLE/BUSY 直接跳过，不增加轮次、不输出
+                _write_status(status_path, "STANDBY", round_num, "SKIP")
                 _interruptible_sleep(interval_seconds, status_path, stop_path)
-                return (round_num, consecutive_skips)  # 跳过本轮
+                return round_num  # 跳过本轮，轮次不变
         except FileNotFoundError:
             print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
         except Exception as e:
@@ -390,7 +384,6 @@ def _loop_body(
 
     # 执行 agent turn（或未启用前置检查）时才到这里
     round_num += 1
-    consecutive_skips = 0
     print(f"[{trigger_time}] [轮次 {round_num}] 开始 ...")
 
     # 执行 agent turn
@@ -417,7 +410,7 @@ def _loop_body(
     _write_status(status_path, "STANDBY", round_num, agent_status)
     print(f"  等待 {interval_seconds} 秒 ...\n")
     _interruptible_sleep(interval_seconds, status_path, stop_path)
-    return (round_num, consecutive_skips)
+    return round_num
 
 
 if __name__ == "__main__":

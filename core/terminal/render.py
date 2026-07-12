@@ -104,12 +104,13 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
     tz_offset = config.get("tz_offset", 8)
     workspace = config.get("worker_workspace", "")
     cron_workdir = os.path.join(workspace, "user_tools", "cron_daemon") if workspace else ""
+    tools_dir = os.path.join(workspace, "tools") if workspace else ""
 
     script = f"""#!/bin/bash
 # run_terminal.sh — 由 core/terminal/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./terminal --tz-offset {tz_offset} --cron-workdir "{cron_workdir}"
+exec ./terminal --tz-offset {tz_offset} --cron-workdir "{cron_workdir}" --tools-dir "{tools_dir}"
 """
 
     sh_path = os.path.join(dst_dir, "run_terminal.sh")
