@@ -57,7 +57,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         required=True,
         metavar="SECONDS",
-        help=
+        help="执行间隔，秒（必填）",
     )
     p.add_argument(
         "-t", "--timeout",
@@ -298,7 +298,7 @@ def _acquire_singleton_lock(lock_path: str) -> int:
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if not args.interval:
-        print("[FATAL] , file=sys.stderr)
+        print("[FATAL] 执行间隔不能为 0", file=sys.stderr)
         sys.exit(1)
 
     prompt = load_prompt(args.prompt)
