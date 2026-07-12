@@ -222,10 +222,18 @@ def _interruptible_sleep(seconds: int, status_path: str = "", stop_path: Path | 
         time.sleep(1)
 
 
+_stop_file: Path | None = None
+
+
 def _stop_exit(status_path: str = ""):
-    """写 STOPPED 状态、清理锁、退出进程。"""
+    """写 STOPPED 状态、删 stop 标记、清理锁、退出进程。"""
     if status_path:
         _write_status(status_path, "STOPPED", 0, None)
+    if _stop_file:
+        try:
+            _stop_file.unlink(missing_ok=True)
+        except OSError:
+            pass
     print("\n[cron_daemon] 已停止")
     _cleanup_lock()
     sys.exit(0)
@@ -253,8 +261,23 @@ def save_log(output_dir: str, session_id: str, success: bool, text: str) -> None
     filepath.write_text(content, encoding="utf-8")
 
 
+_lock_path: str | None = None
+
+
+def _cleanup_lock():
+    """清理 .cron_daemon.lock 文件。"""
+    global _lock_path
+    if _lock_path:
+        try:
+            Path(_lock_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _acquire_singleton_lock(lock_path: str) -> int:
     """获取单例文件锁。返回 fd，进程退出时 OS 自动释放。"""
+    global _lock_path
+    _lock_path = lock_path
     lf = Path(lock_path)
     lf.parent.mkdir(parents=True, exist_ok=True)
     fd = lf.open("w")
@@ -300,6 +323,8 @@ def main(argv: list[str] | None = None) -> None:
     stop_path = Path(args.stop_file)
     if not stop_path.is_absolute():
         stop_path = daemon_dir / args.stop_file
+    global _stop_file
+    _stop_file = stop_path
 
     print(
         f"[cron_daemon] 启动\n"
