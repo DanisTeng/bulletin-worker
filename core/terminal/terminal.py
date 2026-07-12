@@ -90,7 +90,7 @@ def _render_daemon_indicator(status_path: str | None) -> str:
         return f"  |  cron: 💀 已退出（最后状态 {ds} 第{rnd}轮）"
 
     # daemon 进程活着
-    icons = {"RUNNING": "▶️", "SLEEPING": "💤", "FATAL": "💥", "STOPPED": "⏹️"}
+    icons = {"RUNNING": "▶️", "STANDBY": "💤", "FATAL": "💥", "STOPPED": "⏹️"}
     icon = icons.get(ds, "❓")
     agent_tag = f" | {agent_st}" if agent_st else ""
     return f"  |  cron: {icon} {ds} 第{rnd}轮{agent_tag}"

@@ -362,6 +362,9 @@ def _loop_body(
     session_id = f"cron-{int(time.time())}-{os.getpid()}"
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
+    # 一进入循环就标记 RUNNING，不等 run_agent 跑完
+    _write_status(status_path, "RUNNING", round_num, None)
+
     # ── 前置检查：worker 状态 ────────────────────────────────────
     if status_cmd and not args.no_skip_if_idle:
         try:
@@ -374,9 +377,11 @@ def _loop_body(
                 consecutive_skips += 1
                 if consecutive_skips <= 3:
                     round_num += 1
-                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                    _write_status(status_path, "STANDBY", round_num, "SKIP")
                     print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
-                # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
+                else:
+                    # 超过 3 次连续 SKIP：静默，但状态保持 STANDBY
+                    _write_status(status_path, "STANDBY", round_num, "SKIP")
                 _interruptible_sleep(interval_seconds, status_path, stop_path)
                 return (round_num, consecutive_skips)  # 跳过本轮
         except FileNotFoundError:
@@ -409,8 +414,8 @@ def _loop_body(
 
     print(f"  session: {session_id} | {agent_status} | 日志已保存")
 
-    # 等下一轮前标记为 SLEEPING
-    _write_status(status_path, "SLEEPING", round_num, agent_status)
+    # 等下一轮前标记为 STANDBY（等待阶段，非 sleeping）
+    _write_status(status_path, "STANDBY", round_num, agent_status)
     print(f"  等待 {interval_minutes} 分钟 ...\n")
     _interruptible_sleep(interval_seconds, status_path, stop_path)
     return (round_num, consecutive_skips)
