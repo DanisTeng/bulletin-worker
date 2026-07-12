@@ -189,7 +189,7 @@ def _write_status(status_path: str, status: str, round_num: int,
     """写 .cron_daemon.status.json，外部进程可只读读取。"""
     payload = {
         "pid": os.getpid(),
-        "daemon_status": status,  # "RUNNING" | "SLEEPING" | "FATAL"
+        "daemon_status": status,  # "RUNNING" | "STANDBY" | "FATAL"
         "round": round_num,
         "latest_round_at": datetime.now(timezone.utc).isoformat(),
         "latest_agent_status": agent_status,  # "OK" | "FAIL" | "SKIP" | None
