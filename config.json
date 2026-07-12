@@ -12,7 +12,7 @@
   "blocking_number": 3,
   "max_num_sub_task": 50,
   "cron_daemon": {
-    "interval_minutes": 1,
+    "interval_seconds": 10,
     "timeout_seconds": 900,
     "enable_status_check": true,
     "skip_if_idle": true

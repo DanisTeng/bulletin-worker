@@ -4,15 +4,15 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
 
 独立进程，代替有 bug 的 OpenClaw 原生 cron。
 特性:
-  - 每隔 X 分钟跑一次，任务不重叠
+  - 每隔 X 秒跑一次，任务不重叠
   - 每次创建隔离 session，跑完即焚（刷掉 sessions.json + transcript）
   - 超时自行管理
   - agent 回复存日志文件
   - gateway 崩了就跟着崩（不自动重启）
 
 用法:
-  ./cron_daemon -p PROMPT.md -i 5 -t 600
-  ./cron_daemon -p PROMPT.md -i 5 -t 600 -s ../bb-get-status
+  ./cron_daemon -p PROMPT.md -i 300 -t 600
+  ./cron_daemon -p PROMPT.md -i 300 -t 600 -s ../bb-get-status
 
 所有路径/参数由 sh wrapper（run_cron_daemon.sh）自动填充。
 
@@ -56,8 +56,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "-i", "--interval",
         type=int,
         required=True,
-        metavar="MINUTES",
-        help="执行间隔，分钟（必填）",
+        metavar="SECONDS",
+        help="执行间隔，秒（必填）",
     )
     p.add_argument(
         "-t", "--timeout",
@@ -189,7 +189,7 @@ def _write_status(status_path: str, status: str, round_num: int,
     """写 .cron_daemon.status.json，外部进程可只读读取。"""
     payload = {
         "pid": os.getpid(),
-        "daemon_status": status,  # "RUNNING" | "SLEEPING" | "FATAL"
+        "daemon_status": status,  # "RUNNING" | "STANDBY" | "FATAL"
         "round": round_num,
         "latest_round_at": datetime.now(timezone.utc).isoformat(),
         "latest_agent_status": agent_status,  # "OK" | "FAIL" | "SKIP" | None
@@ -304,8 +304,7 @@ def main(argv: list[str] | None = None) -> None:
     prompt = load_prompt(args.prompt)
     agent_id = args.agent
 
-    interval_minutes = args.interval
-    interval_seconds = interval_minutes * 60
+    interval_seconds = args.interval
     timeout_seconds = args.timeout
 
     status_cmd = Path(args.bb_status_cmd) if args.bb_status_cmd else None
@@ -329,7 +328,7 @@ def main(argv: list[str] | None = None) -> None:
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
-        f"  interval:    {interval_minutes} 分钟 ({interval_seconds}s)\n"
+        f"  interval:    {interval_seconds} 秒\n"
         f"  timeout:     {timeout_seconds}s\n"
         f"  log dir:     {args.output_dir}\n"
         f"  sessions:    {_sessions_json_for(agent_id)}\n"
@@ -347,20 +346,23 @@ def main(argv: list[str] | None = None) -> None:
             print("[cron_daemon] 停止标记文件存在，退出")
             break
 
-        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, interval_minutes, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
+        rn, cs = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, prompt, agent_id, timeout_seconds, round_num, consecutive_skips)
         round_num = rn
         consecutive_skips = cs
 
 
 def _loop_body(
     args, status_cmd, status_path, stop_path,
-    interval_seconds, interval_minutes,
+    interval_seconds,
     prompt, agent_id, timeout_seconds,
     round_num: int, consecutive_skips: int,
 ) -> tuple[int, int]:
     """执行一轮 cron。返回 (next_round_num, next_consecutive_skips)。"""
     session_id = f"cron-{int(time.time())}-{os.getpid()}"
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    # 一进入循环就标记 RUNNING，不等 run_agent 跑完
+    _write_status(status_path, "RUNNING", round_num, None)
 
     # ── 前置检查：worker 状态 ────────────────────────────────────
     if status_cmd and not args.no_skip_if_idle:
@@ -374,9 +376,11 @@ def _loop_body(
                 consecutive_skips += 1
                 if consecutive_skips <= 3:
                     round_num += 1
-                    _write_status(status_path, "SLEEPING", round_num, "SKIP")
+                    _write_status(status_path, "STANDBY", round_num, "SKIP")
                     print(f"[{trigger_time}] [轮次 {round_num}] SKIP — worker {bb_status}，非 ACTIVE（无日志写入）")
-                # 超过 3 次连续 SKIP：静默，轮次不增，状态不写
+                else:
+                    # 超过 3 次连续 SKIP：静默，但状态保持 STANDBY
+                    _write_status(status_path, "STANDBY", round_num, "SKIP")
                 _interruptible_sleep(interval_seconds, status_path, stop_path)
                 return (round_num, consecutive_skips)  # 跳过本轮
         except FileNotFoundError:
@@ -409,9 +413,9 @@ def _loop_body(
 
     print(f"  session: {session_id} | {agent_status} | 日志已保存")
 
-    # 等下一轮前标记为 SLEEPING
-    _write_status(status_path, "SLEEPING", round_num, agent_status)
-    print(f"  等待 {interval_minutes} 分钟 ...\n")
+    # 等下一轮前标记为 STANDBY（等待阶段，非 sleeping）
+    _write_status(status_path, "STANDBY", round_num, agent_status)
+    print(f"  等待 {interval_seconds} 秒 ...\n")
     _interruptible_sleep(interval_seconds, status_path, stop_path)
     return (round_num, consecutive_skips)
 
