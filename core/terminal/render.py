@@ -102,12 +102,14 @@ def _cleanup_build(work_dir: str):
 def _render_run_sh(config: dict, dst_dir: str) -> str:
     """生成 run_terminal.sh，从 config.json 填充参数。"""
     tz_offset = config.get("tz_offset", 8)
+    workspace = config.get("worker_workspace", "")
+    cron_workdir = os.path.join(workspace, "user_tools", "cron_daemon") if workspace else ""
 
     script = f"""#!/bin/bash
 # run_terminal.sh — 由 core/terminal/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./terminal --tz-offset {tz_offset}
+exec ./terminal --tz-offset {tz_offset} --cron-workdir "{cron_workdir}"
 """
 
     sh_path = os.path.join(dst_dir, "run_terminal.sh")
