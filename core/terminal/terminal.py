@@ -30,17 +30,18 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import Footer, Label, Static, TextArea
+from rich.text import Text
+from rich.markup import escape
 
 # ── 全局配置 ────────────────────────────────────────────────────
 
-TICK_INTERVAL = 1 / 20  # 20Hz
+TICK_INTERVAL = 1 / 60  # 60Hz
+TICK_PER_REFRESH = 6  
 
 _tz_offset: int = 8
 _cron_workdir: str | None = None
 _tools_dir: str | None = None
 
-# 加速逻辑：缓存上次展示的最后一条留言的 MD5
-_last_board_hash: str | None = None
 
 # 状态缓存
 _last_status: str | None = None
@@ -195,6 +196,7 @@ class Terminal(App):
 
     def on_mount(self):
         self._need_scroll_bottom = False
+        self._tick_index = 0
         self.set_interval(TICK_INTERVAL, self.tick)
         self.query_one("#input", TextArea).focus()
         self._update_header()
@@ -208,8 +210,11 @@ class Terminal(App):
             self.exit()
 
     def tick(self):
-        self._update_header()
-        self._refresh_board()
+        self._tick_index = self._tick_index + 1
+        if self._tick_index >= TICK_PER_REFRESH:
+            self._tick_index = 0
+            self._update_header()
+            self._refresh_board()
 
     def _update_header(self):
         offset = timedelta(hours=_tz_offset)
@@ -228,7 +233,6 @@ class Terminal(App):
         加速：只比较最后一条留言是否变化，没变则不刷新展示框。
         通过 bb-recent wrapper 获取，而非内联。
         """
-        global _last_board_hash
 
         if not _tools_dir:
             self._need_scroll_bottom = False
@@ -240,21 +244,13 @@ class Terminal(App):
 
         lines = raw.split("\n") if raw else []
 
-        if not lines or (len(lines) == 1 and lines[0] == ""):
-            if _last_board_hash is not None:
-                _last_board_hash = None
-                self.query_one("#msg_content", Static).update("（暂无留言）")
+
+        if not lines or (len(lines) == 1 and lines[0] == ""): 
+            self.query_one("#msg_content", Static).update("（暂无留言）")
             self._need_scroll_bottom = False
             return
 
-        # 加速：只比较最后一条留言是否变化
-        last_line = lines[-1]
-        current_hash = hashlib.md5(last_line.encode("utf-8")).hexdigest()
-        if current_hash == _last_board_hash:
-            return  # 无变化，跳过刷新
-
-        _last_board_hash = current_hash
-        self.query_one("#msg_content", Static).update("\n".join(lines))
+        self.query_one("#msg_content", Static).update(Text(escape(raw)))
 
         # Ctrl+D 发帖后的自动滚底
         if self._need_scroll_bottom:
@@ -281,18 +277,15 @@ class Terminal(App):
         textarea.text = ""
 
         # 标记需要滚动到底部 + 强制刷新展示
-        global _last_board_hash
-        _last_board_hash = None
         self._need_scroll_bottom = True
 
 
 def main(argv: list[str] | None = None):
-    global _tz_offset, _cron_workdir, _tools_dir, _last_board_hash, _last_status
+    global _tz_offset, _cron_workdir, _tools_dir, _last_status
     args = parse_args(argv)
     _tz_offset = args.tz_offset
     _cron_workdir = args.cron_workdir
     _tools_dir = args.tools_dir
-    _last_board_hash = None
     _last_status = None
 
     app = Terminal()
