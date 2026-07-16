@@ -23,6 +23,12 @@ bb_board.py — 留言板读写工具
   # 以指定时间为锚点，往前/往后取若干条
   bb_board.py <board_dir> around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]
 
+  # 查全局留言 index（从 0 开始，每条留言 +1，65536 溢出归零）
+  bb_board.py <board_dir> index
+
+  # 清空留言板：删除所有留言文件，重置 index 和状态
+  bb_board.py <board_dir> clear
+
 示例:
   echo "翻译 /docs/manual.md" | bb_board.py /tmp/board post Danis
   printf "进度更新\n已完成第1章" | bb_board.py /tmp/board post James
@@ -342,6 +348,82 @@ def _collect_lines_around(
     return _grep_lines(selected, grep)
 
 
+# ── 全局留言 index ────────────────────────────────────────────────
+
+_INDEX_FILE = "index.json"
+_INDEX_MAX = 65536
+
+
+def _index_path(board_dir: Path) -> Path:
+    return board_dir / _INDEX_FILE
+
+
+def _read_index(board_dir: Path) -> int:
+    """读取当前留言 index，文件不存在时返回 0。"""
+    fp = _index_path(board_dir)
+    if not fp.exists():
+        return 0
+    try:
+        import json
+        data = json.loads(fp.read_text())
+        return data.get("last_index", 0)
+    except (json.JSONDecodeError, OSError, PermissionError):
+        return 0
+
+
+def _write_index(board_dir: Path, value: int):
+    """写入留言 index，超过 _INDEX_MAX - 1 后回 0。"""
+    if value >= _INDEX_MAX:
+        value = 0
+    try:
+        import json
+        fp = _index_path(board_dir)
+        fp.write_text(json.dumps({"last_index": value}, ensure_ascii=False, indent=2))
+    except (OSError, PermissionError) as e:
+        _err(f"写入 index 失败: {e}")
+
+
+def _increment_index(board_dir: Path) -> int:
+    """递增留言 index 并写回文件，返回新值。"""
+    cur = _read_index(board_dir)
+    new_val = cur + 1
+    if new_val >= _INDEX_MAX:
+        new_val = 0
+    _write_index(board_dir, new_val)
+    return new_val
+
+
+def cmd_index(board_dir: Path) -> int:
+    """查询当前留言 index。"""
+    return _read_index(board_dir)
+
+
+def cmd_clear(board_dir: Path):
+    """清空留言板：删除所有日期留言文件，重置 index 和 status。"""
+    # 删除所有 YYYY-MM-DD.md 文件
+    removed = 0
+    for fp in _sorted_board_files(board_dir):
+        try:
+            fp.unlink()
+            removed += 1
+        except (OSError, PermissionError) as e:
+            print(f"⚠️  无法删除 {fp}: {e}", file=sys.stderr)
+
+    # 重置 index
+    _write_index(board_dir, 0)
+
+    # 重置 status.json
+    status_fp = board_dir / "status.json"
+    if status_fp.exists():
+        try:
+            import json
+            status_fp.write_text(json.dumps({"status": "IDLE"}, ensure_ascii=False, indent=2))
+        except (OSError, PermissionError) as e:
+            print(f"⚠️  无法重置 status: {e}", file=sys.stderr)
+
+    print(f"✅ 已清空留言板，删除 {removed} 个留言文件")
+
+
 # ── 核心功能 ───────────────────────────────────────────────────
 
 
@@ -377,6 +459,9 @@ def post(board_dir: Path, speaker: str, content: str) -> str:
                     f.write(f"{indent}{line}\n")
     except (OSError, PermissionError) as e:
         _err(f"写入留言失败 {fp}: {e}")
+
+    # 每次成功发帖后递增全局留言 index
+    _increment_index(board_dir)
 
     return prefix + lines[0]
 
@@ -483,7 +568,7 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
         return None, name, []
 
     # 检查 argv[i] 是否是保留字（子命令名）
-    subcommands = {"post", "recent", "history", "around"}
+    subcommands = {"post", "recent", "history", "around", "index", "clear"}
     if argv[i] in subcommands:
         _err("缺少 <board_dir> 参数")
 
@@ -492,7 +577,7 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
     i += 1
 
     if i >= n:
-        _err("缺少子命令 (post / recent / history / around)")
+        _err("缺少子命令 (post / recent / history / around / index / clear)")
 
     subcmd = argv[i]
     if subcmd not in subcommands:
@@ -638,6 +723,17 @@ def _cmd_history(path: Path, args: list[str]):
         print(line)
 
 
+def _cmd_index(path: Path, args: list[str]):
+    """处理 index 子命令：查全局留言 index。"""
+    n = cmd_index(path)
+    print(n)
+
+
+def _cmd_clear(path: Path, args: list[str]):
+    """处理 clear 子命令：清空留言板。"""
+    cmd_clear(path)
+
+
 # ── 主入口 ─────────────────────────────────────────────────────
 
 
@@ -660,6 +756,8 @@ def main():
         "recent": _cmd_recent,
         "history": _cmd_history,
         "around": _cmd_around,
+        "index": _cmd_index,
+        "clear": _cmd_clear,
     }
 
     handler = handlers.get(subcmd)
