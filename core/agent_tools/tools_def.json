@@ -107,6 +107,6 @@
   {
     "name": "bb-board-clear",
     "description": "清空留言板：删除所有留言文件，重置留言 index 和状态为 IDLE。注意：此操作不可逆，只在外设 board 累积过多且想全新开始时使用。用法: bb-board-clear",
-    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" clear"
+    "template": "#!/bin/bash\n\"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" clear\nexec \"$AGENT_TOOLS_DIR/bb_status\" \"$BOARD_DIR/status.json\" IDLE"
   }
 ]

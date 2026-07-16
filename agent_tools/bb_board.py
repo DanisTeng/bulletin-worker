@@ -399,7 +399,9 @@ def cmd_index(board_dir: Path) -> int:
 
 
 def cmd_clear(board_dir: Path):
-    """清空留言板：删除所有日期留言文件，重置 index 和 status。"""
+    """清空留言板：删除所有日期留言文件，重置 index。
+    status 重置由调用方（wrapper）负责，通过 bb-status 处理。
+    """
     # 删除所有 YYYY-MM-DD.md 文件
     removed = 0
     for fp in _sorted_board_files(board_dir):
@@ -412,16 +414,8 @@ def cmd_clear(board_dir: Path):
     # 重置 index
     _write_index(board_dir, 0)
 
-    # 重置 status.json
-    status_fp = board_dir / "status.json"
-    if status_fp.exists():
-        try:
-            import json
-            status_fp.write_text(json.dumps({"status": "IDLE"}, ensure_ascii=False, indent=2))
-        except (OSError, PermissionError) as e:
-            print(f"⚠️  无法重置 status: {e}", file=sys.stderr)
-
     print(f"✅ 已清空留言板，删除 {removed} 个留言文件")
+    print(f"💡 提示：如需重置状态，请执行 bb-set-idle")
 
 
 # ── 核心功能 ───────────────────────────────────────────────────

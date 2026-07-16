@@ -1,3 +1,4 @@
 #!/bin/bash
-# bb-board-clear — 清空留言板（删除所有留言文件，重置 index 和状态）
-exec "$AGENT_TOOLS_DIR/bb_board" "$BOARD_DIR" clear
+# bb-board-clear — 清空留言板（删除所有留言文件，重置 index + 状态为 IDLE）
+"$AGENT_TOOLS_DIR/bb_board" "$BOARD_DIR" clear
+exec "$AGENT_TOOLS_DIR/bb_status" "$BOARD_DIR/status.json" IDLE
