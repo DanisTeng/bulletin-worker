@@ -284,6 +284,16 @@ class Terminal(App):
             self.exit()
             return
 
+        if text == "/clear":
+            textarea.text = ""
+            if _tools_dir:
+                _exec_wrapper("bb-board-clear")
+            # 重置 index 缓存，确保下一 tick 重新拉取 board 内容
+            global _last_board_index
+            _last_board_index = None
+            self._need_scroll_bottom = True
+            return
+
         # 通过 bb-leader-post wrapper 发留言（含自动设为 ACTIVE）
         if _tools_dir:
             _exec_wrapper("bb-leader-post", text)
