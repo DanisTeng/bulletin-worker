@@ -52,7 +52,9 @@ fi
 
 # ── 清空并重建目录 ─────────────────────────────────────────
 echo "🧹 [0/7] 清空工作区 & 留言板..."
-rm -rf "$WORKER_WS" "$BOARD_PATH"
+# 清空工作区内容（保留目录 inode，避免已 cd 进来的 shell 窗口悬空）
+rm -rf "$WORKER_WS"/*
+rm -rf "$BOARD_PATH"
 mkdir -p "$WORKER_WS" "$BOARD_PATH"
 
 # ── 第 1 步：渲染工具（pyinstaller + sh wrapper）───────────
