@@ -45,6 +45,7 @@ _tools_dir: str | None = None
 
 # 状态缓存
 _last_status: str | None = None
+_last_board_index: int | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -230,13 +231,27 @@ class Terminal(App):
     def _refresh_board(self):
         """读取 recent 留言并更新展示框（20Hz），带加速逻辑。
 
-        加速：只比较最后一条留言是否变化，没变则不刷新展示框。
-        通过 bb-recent wrapper 获取，而非内联。
+        加速：先查留言 index，与上次相同时跳过 bb-recent 调用，减少外部命令执行。
+        通过 bb-index / bb-recent wrapper 获取，而非内联。
         """
 
         if not _tools_dir:
             self._need_scroll_bottom = False
             return
+
+        # 先查 index，没变则跳过后续刷新
+        global _last_board_index
+        idx_raw = _exec_wrapper("bb-index")
+        if idx_raw is not None:
+            try:
+                cur_idx = int(idx_raw.strip())
+            except (ValueError, TypeError):
+                cur_idx = None
+
+            if _last_board_index is not None and cur_idx == _last_board_index:
+                # 留言无变化，无需刷新展示框
+                return
+            _last_board_index = cur_idx
 
         raw = _exec_wrapper("bb-recent", "100")
         if raw is None:
@@ -281,12 +296,13 @@ class Terminal(App):
 
 
 def main(argv: list[str] | None = None):
-    global _tz_offset, _cron_workdir, _tools_dir, _last_status
+    global _tz_offset, _cron_workdir, _tools_dir, _last_status, _last_board_index
     args = parse_args(argv)
     _tz_offset = args.tz_offset
     _cron_workdir = args.cron_workdir
     _tools_dir = args.tools_dir
     _last_status = None
+    _last_board_index = None
 
     app = Terminal()
     signal.signal(signal.SIGINT, lambda s, f: app.exit())
