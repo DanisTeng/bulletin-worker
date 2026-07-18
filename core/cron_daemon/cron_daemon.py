@@ -9,6 +9,7 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
   - 超时自行管理
   - agent 回复存日志文件
   - gateway 崩了就跟着崩（不自动重启）
+  - 启动时自动清理同前缀 session 残留
 
 用法:
   ./cron_daemon -p PROMPT.md -i 300 -t 600
@@ -20,6 +21,7 @@ cron_daemon — OpenClaw cron 替代品（v4.5 专用）
   - 可选前置检查 worker 状态：非 ACTIVE 时自动跳过本轮，不浪费 token
   - 单例锁（fcntl.flock）：同一工作区只能运行一个实例
   - 状态文件 .cron_daemon.status.json 供外部只读监控
+  - session 前缀 {worker_name}-cron-xxx，启动时扫清同前缀残留
 """
 
 import argparse
@@ -37,6 +39,7 @@ from pathlib import Path
 # 可通过 --agent 覆盖，适配 agent id 非 main 的用户
 _OPENCLAW_PATH = "openclaw"
 _DEFAULT_AGENT = "main"
+_DEFAULT_WORKER = "James"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -81,6 +84,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"OpenClaw agent ID（默认 {_DEFAULT_AGENT}）",
     )
     p.add_argument(
+        "-w", "--worker-name",
+        type=str,
+        default=_DEFAULT_WORKER,
+        metavar="NAME",
+        help=f"worker 名称，用于 session 前缀（默认 {_DEFAULT_WORKER}）",
+    )
+    p.add_argument(
         "-s", "--bb-status-cmd",
         type=str,
         default=None,
@@ -107,6 +117,18 @@ def _sessions_json_for(agent_id: str) -> str:
     return os.path.expanduser(
         f"~/.openclaw/agents/{agent_id}/sessions/sessions.json"
     )
+
+
+def _sessions_dir_for(agent_id: str) -> str:
+    """v4.5 的 sessions 目录路径。"""
+    return os.path.expanduser(
+        f"~/.openclaw/agents/{agent_id}/sessions"
+    )
+
+
+def _session_key_prefix_for(agent_id: str, worker_name: str) -> str:
+    """获取 session key 前缀，用于匹配指定 worker 的所有 session。"""
+    return f"agent:{agent_id}:explicit:{worker_name}-"
 
 
 def _actual_key_for(agent_id: str, session_id: str) -> str:
@@ -154,34 +176,106 @@ def run_agent(message: str, session_id: str, timeout: int) -> tuple[bool, str]:
 
 def cleanse_session(session_id: str, agent_id: str) -> None:
     """
-    用完即焚 — 从 sessions.json 删掉对应条目。
+    用完即焚 — 从 sessions.json 删掉对应条目并删除 transcript 文件。
     静默失败（不打断主流程）。
     """
     sessions_json = _sessions_json_for(agent_id)
     actual_key = _actual_key_for(agent_id, session_id)
 
-    if os.path.exists(sessions_json):
-        try:
-            with open(sessions_json, "r", encoding="utf-8") as f:
-                data = json.load(f)
+    if not os.path.exists(sessions_json):
+        return
 
-            modified = False
-            if isinstance(data, dict):
-                if actual_key in data:
-                    del data[actual_key]
-                    modified = True
-            elif isinstance(data, list):
-                before = len(data)
-                data = [s for s in data if s.get("key") != actual_key]
-                modified = len(data) < before
+    try:
+        with open(sessions_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-            if modified:
-                with open(sessions_json, "w", encoding="utf-8") as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception:
-            pass
+        transcript_id = None
+        modified = False
+        if isinstance(data, dict):
+            if actual_key in data:
+                transcript_id = data[actual_key].get("id")
+                del data[actual_key]
+                modified = True
+        elif isinstance(data, list):
+            for s in data:
+                if s.get("key") == actual_key:
+                    transcript_id = s.get("id")
+                    break
+            before = len(data)
+            data = [s for s in data if s.get("key") != actual_key]
+            modified = len(data) < before
 
-    # 不删 transcript 文件——文件名是 UUID，不从 session_id 可推
+        if modified:
+            with open(sessions_json, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # 删除对应的 transcript 文件
+            if transcript_id:
+                transcript_path = os.path.join(
+                    _sessions_dir_for(agent_id), f"{transcript_id}.jsonl"
+                )
+                try:
+                    if os.path.exists(transcript_path):
+                        os.remove(transcript_path)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+
+def cleanse_all_by_prefix(agent_id: str, worker_name: str) -> int:
+    """
+    启动时扫雷：清理 sessions.json 中所有以 {worker_name}- 为前缀的 session 条目。
+    同时删除对应的 transcript 文件。
+    返回清理的条目数。
+    """
+    sessions_json = _sessions_json_for(agent_id)
+    prefix = _session_key_prefix_for(agent_id, worker_name)
+    sessions_dir = _sessions_dir_for(agent_id)
+
+    if not os.path.exists(sessions_json):
+        return 0
+
+    removed = 0
+    try:
+        with open(sessions_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        transcript_ids = []
+        if isinstance(data, dict):
+            keys_to_del = [k for k in data if k.startswith(prefix)]
+            for k in keys_to_del:
+                tid = data[k].get("id")
+                if tid:
+                    transcript_ids.append(tid)
+                del data[k]
+            removed = len(keys_to_del)
+        elif isinstance(data, list):
+            before = len(data)
+            for s in data:
+                if s.get("key", "").startswith(prefix):
+                    tid = s.get("id")
+                    if tid:
+                        transcript_ids.append(tid)
+            data = [s for s in data if not s.get("key", "").startswith(prefix)]
+            removed = before - len(data)
+
+        if removed > 0:
+            with open(sessions_json, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # 删除对应的 transcript 文件
+            for tid in transcript_ids:
+                tpath = os.path.join(sessions_dir, f"{tid}.jsonl")
+                try:
+                    if os.path.exists(tpath):
+                        os.remove(tpath)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+    return removed
 
 
 def _write_status(status_path: str, status: str, round_num: int,
@@ -325,11 +419,17 @@ def main(argv: list[str] | None = None) -> None:
     global _stop_file
     _stop_file = stop_path
 
+    # ── 启动扫雷：清理同前缀 session 残留 ──
+    cleaned = cleanse_all_by_prefix(agent_id, args.worker_name)
+    if cleaned:
+        print(f"[cron_daemon] 清理 {cleaned} 个前代 {args.worker_name} session 残留")
+
     print(
         f"[cron_daemon] 启动\n"
         f"  prompt:      {args.prompt}\n"
         f"  interval:    {interval_seconds} 秒\n"
         f"  timeout:     {timeout_seconds}s\n"
+        f"  worker:      {args.worker_name}\n"
         f"  log dir:     {args.output_dir}\n"
         f"  sessions:    {_sessions_json_for(agent_id)}\n"
         f"  openclaw 4.5 | agent: {agent_id}\n"
@@ -345,7 +445,10 @@ def main(argv: list[str] | None = None) -> None:
             print("[cron_daemon] 停止标记文件存在，退出")
             break
 
-        round_num = _loop_body(args, status_cmd, status_path, stop_path, interval_seconds, prompt, agent_id, timeout_seconds, round_num)
+        round_num = _loop_body(
+            args, status_cmd, status_path, stop_path,
+            interval_seconds, prompt, agent_id, timeout_seconds, round_num,
+        )
 
 
 def _loop_body(
@@ -358,7 +461,7 @@ def _loop_body(
 
     简化逻辑：初始检查发现是 IDLE 时直接跳过本轮，不增加轮次、不输出。
     """
-    session_id = f"cron-{int(time.time())}-{os.getpid()}"
+    session_id = f"{args.worker_name}-cron-{int(time.time())}-{os.getpid()}"
     trigger_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
     # 一进入循环就标记 RUNNING，不等 run_agent 跑完
