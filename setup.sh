@@ -102,7 +102,7 @@ echo "🖥️  [7/8] 渲染 terminal（交互式终端 TUI）..."
 python3 "$CORE_DIR/terminal/render.py"
 echo ""
 
-# ── 第 8 步：渲染 feishu_sync ──────────────────────────
+# ── 第 8 步：渲染 feishu_ui ──────────────────────────
 echo ""
 echo "✈️  [8/8] 渲染 feishu_ui（飞书消息同步守护进程）..."
 python3 "$CORE_DIR/feishu/sync/render.py"

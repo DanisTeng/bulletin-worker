@@ -37,6 +37,8 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # ── 路径配置 ─────────────────────────────────────────────────────
@@ -100,6 +102,9 @@ def _read_index(board_dir: str) -> int | None:
             return data.get("last_index")
     except FileNotFoundError:
         return 0  # 空留言板，index 视为 0
+    except PermissionError:
+        _p(f"[{RUNNER_NAME}] ❌ 无权限读取 {path}", file=sys.stderr)
+        return None
     except (json.JSONDecodeError, KeyError):
         return None
 
@@ -111,11 +116,7 @@ def _bb_get(tools_dir: str, index: int) -> str | None:
     """调 bb-get <index>，返回留言内容（含时间戳和发言人）。失败返回 None。"""
     get_path = os.path.join(tools_dir, "bb-get")
     if not os.path.isfile(get_path):
-        # 试 ELF 名 bb_get（pyinstaller 产物）
-        get_path = os.path.join(tools_dir, "bb_get")
-
-    if not os.path.isfile(get_path):
-        _p(f"[{RUNNER_NAME}] ❌ 未找到 bb-get / bb_get 工具在 {tools_dir}", file=sys.stderr)
+        _p(f"[{RUNNER_NAME}] ❌ 未找到 bb-get 在 {tools_dir}", file=sys.stderr)
         return None
 
     try:
@@ -154,9 +155,6 @@ def _resolve_open_id(app_id: str, app_secret: str, leader_name: str) -> str | No
         "Content-Type": "application/json; charset=utf-8",
     }
 
-    import urllib.request
-    import urllib.error
-
     while True:
         params = f"page_size=50"
         if page_token:
@@ -188,26 +186,6 @@ def _resolve_open_id(app_id: str, app_secret: str, leader_name: str) -> str | No
         page_token = data.get("data", {}).get("page_token")
 
     return None
-
-
-# ── 消息格式化 ─────────────────────────────────────────────────────
-
-
-def _format_sync_message(text: str | None, leader_name: str) -> str:
-    """把 bb-get 返回的留言行格式化为飞书可读消息。
-
-    原始格式：
-      2026-07-22 14:30 [Danis] (#42) 这里一条留言
-      这是续行
-
-    Args:
-        text: bb-get 原始输出，可为 None
-    Returns:
-        格式化后的消息文本
-    """
-    if not text:
-        return ""
-    return text
 
 
 # ── 主循环 ────────────────────────────────────────────────────────
@@ -305,7 +283,7 @@ def main_loop(args: argparse.Namespace):
             clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
             result = send_text_message(open_id, token, clean_text)
             if result.get("code") != 0:
-                # token 过期自动刷新重试一次
+                # token 可能过期（飞书默认 2h），刷新重试一次
                 new_token = get_token(app_id, app_secret)
                 if new_token:
                     token = new_token
