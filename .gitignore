@@ -7,6 +7,11 @@ agent_tools/dist/
 agent_tools/build/
 agent_tools/*.spec
 
+# pyinstaller 根目录构建缓存
+build/
+dist/
+*.spec
+
 # Python 缓存
 __pycache__/
 *.pyc
