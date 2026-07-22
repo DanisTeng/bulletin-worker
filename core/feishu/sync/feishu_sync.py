@@ -276,63 +276,40 @@ def main_loop(args: argparse.Namespace):
         if diff == 0:
             continue
 
-        # diff 非法（逆转/清空）
+        # diff 逆转（清空）
         if diff < 0:
-            _p(f"[{RUNNER_NAME}] ⚠ index 逆转: last_seen={last_seen}, now_last={now_last}（检测到清空操作）",
-                  file=sys.stderr)
-            # 发告警消息
             alert = (f"🔄 检测到留言板 index 逆转（{last_seen} → {now_last}），可能有清空操作\n"
                      f"将重新同步最近的消息...")
             send_text_message(open_id, token, alert)
             # 从 max(0, now_last - 10) 到 now_last 重发
             start = max(0, now_last - 10)
-            _p(f"[{RUNNER_NAME}] 📨 重发 #{start + 1} ~ #{now_last}（最多 10 条）")
             for i in range(start + 1, now_last + 1):
                 msg_text = _bb_get(tools_dir, i)
                 if msg_text is None:
-                    _p(f"[{RUNNER_NAME}] ⚠ 获取留言 #{i} 失败，跳过", file=sys.stderr)
                     continue
                 clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
-                result = send_text_message(open_id, token, clean_text)
-                if result.get("code") != 0:
-                    _p(f"[{RUNNER_NAME}] ⚠ 发送留言 #{i} 失败", file=sys.stderr)
-                else:
-                    _p(f"[{RUNNER_NAME}]   ✅ #{i} 已同步")
+                send_text_message(open_id, token, clean_text)
             last_seen = now_last
             continue
 
+        # diff 正向跳变（跳过）
         if diff > MAX_LEGACY_DIFF:
-            _p(f"[{RUNNER_NAME}] ⚠ index 跳变: last_seen={last_seen}, now_last={now_last}, diff={diff}（跳过本轮）",
-                  file=sys.stderr)
+            last_seen = now_last
             continue
 
         # diff 合法：逐条同步
-        _p(f"[{RUNNER_NAME}] 📨 同步 {diff} 条新留言（#{last_seen + 1} ~ #{now_last}）")
         for i in range(last_seen + 1, now_last + 1):
             msg_text = _bb_get(tools_dir, i)
             if msg_text is None:
-                _p(f"[{RUNNER_NAME}] ⚠ 获取留言 #{i} 失败，跳过", file=sys.stderr)
                 continue
-            # 去掉续行缩进，保持可读
             clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
             result = send_text_message(open_id, token, clean_text)
             if result.get("code") != 0:
-                _p(f"[{RUNNER_NAME}] ⚠ 发送留言 #{i} 失败: {result.get('msg', '')}", file=sys.stderr)
-                # token 过期时刷新
-                if result.get("code") == 99991663 or "token" in str(result.get("msg", "")).lower():
-                    new_token = get_token(app_id, app_secret)
-                    if new_token:
-                        token = new_token
-                        # 重试
-                        result2 = send_text_message(open_id, token, clean_text)
-                        if result2.get("code") != 0:
-                            _p(f"[{RUNNER_NAME}] ❌ 重试仍失败: {result2.get('msg', '')}", file=sys.stderr)
-                    else:
-                        _p(f"[{RUNNER_NAME}] ❌ token 刷新失败，退出", file=sys.stderr)
-                        sys.exit(1)
-            else:
-                _p(f"[{RUNNER_NAME}]   ✅ #{i} 已同步")
-
+                # token 过期自动刷新重试一次
+                new_token = get_token(app_id, app_secret)
+                if new_token:
+                    token = new_token
+                    send_text_message(open_id, token, clean_text)
         # 更新 last_seen
         last_seen = now_last
 
