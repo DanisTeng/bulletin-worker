@@ -23,7 +23,7 @@ bb_board.py — 留言板读写工具
   # 以指定时间为锚点，往前/往后取若干条
   bb_board.py <board_dir> around <YYYY-MM-DDThh:mm> <前N条> <后N条> [--grep <关键词>]
 
-  # 查全局留言 index（从 0 开始，每条留言 +1，65536 溢出归零）
+  # 查全局留言 index（从 0 开始，每条留言 +1，到 INT32_MAX 溢出归零）
   bb_board.py <board_dir> index
 
   # 清空留言板：删除所有留言文件，重置 index 和状态
@@ -46,6 +46,7 @@ bb_board.py — 留言板读写工具
   2026-06-08 14:31 [James] 收到，开始翻译第1章
 """
 
+import re
 import sys
 from datetime import datetime, timedelta, date as Date
 from pathlib import Path
@@ -351,7 +352,9 @@ def _collect_lines_around(
 # ── 全局留言 index ────────────────────────────────────────────────
 
 _INDEX_FILE = "index.json"
-_INDEX_MAX = 65536
+_INDEX_MAX = 2147483647  # INT32_MAX
+_INDEX_TAG_RE = re.compile(r"\(#(\d+)\)\s*")
+_SUBCOMMANDS = {"post", "recent", "history", "around", "index", "get", "clear"}
 
 
 def _index_path(board_dir: Path) -> Path:
@@ -383,7 +386,7 @@ def _write_index(board_dir: Path, value: int):
         _err(f"写入 index 失败: {e}")
 
 
-def _increment_index(board_dir: Path) -> int:
+def _next_index(board_dir: Path) -> int:
     """递增留言 index 并写回文件，返回新值。"""
     cur = _read_index(board_dir)
     new_val = cur + 1
@@ -423,9 +426,9 @@ def cmd_clear(board_dir: Path):
 
 def post(board_dir: Path, speaker: str, content: str) -> str:
     """
-    发一条留言。自动加时间戳和发言人，追加到今日文件。
+    发一条留言。自动加时间戳、index 标记 (#N) 和发言人，追加到今日文件。
     支持多行内容：续行自动对齐到时间戳位置。
-    返回首行文本（含时间戳标记）。
+    返回首行文本（含时间戳标记和 index）。
     """
     if not speaker:
         _err("发言人不能为空")
@@ -434,9 +437,13 @@ def post(board_dir: Path, speaker: str, content: str) -> str:
 
     _ensure_dir(board_dir)
 
+    # 先递增 index，获取新留言的编号
+    idx = _next_index(board_dir)
+
     now = datetime.now()
     ts = now.strftime("%Y-%m-%d %H:%M")
-    prefix = f"{ts} [{speaker}] "
+    tag = f"(#{idx})"
+    prefix = f"{ts} [{speaker}] {tag} "
     indent = " " * len(prefix)
 
     # 支持 \\n 字面量转真实换行（常见于 shell 字符串传参）
@@ -453,9 +460,6 @@ def post(board_dir: Path, speaker: str, content: str) -> str:
                     f.write(f"{indent}{line}\n")
     except (OSError, PermissionError) as e:
         _err(f"写入留言失败 {fp}: {e}")
-
-    # 每次成功发帖后递增全局留言 index
-    _increment_index(board_dir)
 
     return prefix + lines[0]
 
@@ -548,6 +552,95 @@ def history(
     return results
 
 
+# ── 按 index 获取留言 ────────────────────────────────────────────
+
+
+def _parse_line_index(line: str) -> int | None:
+    """
+    从留言行中解析 (#N) 标记，返回 N。
+    不匹配时返回 None。
+    """
+    m = _INDEX_TAG_RE.search(line)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _file_index_range(lines: list[str]) -> tuple[int | None, int | None]:
+    """
+    扫描文件的所有行，返回 (min_index, max_index)。
+    如果文件为空或没有任何 (#N) 标记，返回 (None, None)。
+    """
+    indices = []
+    for line in lines:
+        idx = _parse_line_index(line)
+        if idx is not None:
+            indices.append(idx)
+    if not indices:
+        return None, None
+    return min(indices), max(indices)
+
+
+def _get_message_by_index(board_dir: Path, target: int) -> list[str]:
+    """
+    按 index 获取完整留言（含续行）。
+
+    搜索策略：
+      1. 倒序扫描留言文件列表（最新文件优先）。
+      2. 对每个文件，先看首尾 index 范围能快速排除目标不在此文件。
+      3. 锁定文件后逐行扫描 (#N) 标记，找到后取该行及后续续行。
+
+    找不到时返回空列表。
+    """
+    files = _sorted_board_files(board_dir)
+    if not files:
+        return []
+
+    # 倒序扫文件，最新文件优先
+    for fp in reversed(files):
+        raw_lines = _read_board_file(fp)
+        if not raw_lines:
+            continue
+
+        # 快速排除：看文件首尾 index 范围
+        # 只扫有 (#N) 标记的行，不再扫全部 timed_lines
+        file_min, file_max = _file_index_range(raw_lines)
+        if file_min is None:
+            continue  # 老文件没有 (#N) 标记，跳过
+
+        if target < file_min or target > file_max:
+            continue  # 目标不在此文件内
+
+        # 文件内逐行搜
+        found_start = -1
+        for i, line in enumerate(raw_lines):
+            idx = _parse_line_index(line)
+            if idx is not None and idx == target:
+                found_start = i
+                break
+
+        if found_start < 0:
+            continue  # 理论上不应发生，防御
+
+        # 取该行及其后续续行（直到下一个有 (#N) 标记的行或文件尾）
+        result_lines = [raw_lines[found_start]]
+        for j in range(found_start + 1, len(raw_lines)):
+            if _parse_line_index(raw_lines[j]) is not None:
+                break
+            result_lines.append(raw_lines[j])
+
+        return result_lines
+
+    return []
+
+
+def cmd_get(board_dir: Path, index: int) -> list[str]:
+    """按 index 获取留言。找不到返回空列表。"""
+    if index < 0 or index >= _INDEX_MAX:
+        return []
+    return _get_message_by_index(board_dir, index)
+
+
 # ── CLI 参数解析 ───────────────────────────────────────────────
 
 
@@ -562,8 +655,7 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
         return None, name, []
 
     # 检查 argv[i] 是否是保留字（子命令名）
-    subcommands = {"post", "recent", "history", "around", "index", "clear"}
-    if argv[i] in subcommands:
+    if argv[i] in _SUBCOMMANDS:
         _err("缺少 <board_dir> 参数")
 
     # 这是 board_dir
@@ -571,11 +663,11 @@ def _parse_subcommand(argv: list[str], i: int, name: str):
     i += 1
 
     if i >= n:
-        _err("缺少子命令 (post / recent / history / around / index / clear)")
+        _err("缺少子命令 (post / recent / history / around / index / get / clear)")
 
     subcmd = argv[i]
-    if subcmd not in subcommands:
-        _err(f"未知子命令: {subcmd}，支持: {', '.join(sorted(subcommands))}")
+    if subcmd not in _SUBCOMMANDS:
+        _err(f"未知子命令: {subcmd}，支持: {', '.join(sorted(_SUBCOMMANDS))}")
 
     i += 1
     args = argv[i:]
@@ -723,6 +815,26 @@ def _cmd_index(path: Path, args: list[str]):
     print(n)
 
 
+def _cmd_get(path: Path, args: list[str]):
+    """处理 get 子命令：按 index 获取留言。
+
+    用法: bb_board.py <board_dir> get <index>
+    """
+    if len(args) < 1:
+        _err("用法: bb_board.py <board_dir> get <index>")
+
+    try:
+        idx = int(args[0])
+    except ValueError:
+        _err(f"index 必须为整数: {args[0]}")
+
+    lines = cmd_get(path, idx)
+    if not lines:
+        return  # 找不到就输出空
+    for line in lines:
+        print(line)
+
+
 def _cmd_clear(path: Path, args: list[str]):
     """处理 clear 子命令：清空留言板。"""
     cmd_clear(path)
@@ -751,6 +863,7 @@ def main():
         "history": _cmd_history,
         "around": _cmd_around,
         "index": _cmd_index,
+        "get": _cmd_get,
         "clear": _cmd_clear,
     }
 

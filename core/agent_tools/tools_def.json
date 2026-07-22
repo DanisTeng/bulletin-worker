@@ -101,8 +101,13 @@
   },
   {
     "name": "bb-index",
-    "description": "查询全局留言 index（从 0 开始，每条留言 +1，到 65536 溢出归零）。TUI 可通过此工具判断是否需要刷新展示。用法: bb-index",
+    "description": "查询全局留言 index（从 0 开始，每条留言 +1，到 INT32_MAX 溢出归零）。TUI 可通过此工具判断是否需要刷新展示。用法: bb-index",
     "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" index"
+  },
+  {
+    "name": "bb-get",
+    "description": "按 index 获取某条留言（含所有续行）。找不到返回空。用法: bb-get <index>",
+    "template": "#!/bin/bash\nexec \"$AGENT_TOOLS_DIR/bb_board\" \"$BOARD_DIR\" get \"$@\""
   },
   {
     "name": "bb-board-clear",
