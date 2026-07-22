@@ -104,7 +104,7 @@ echo ""
 
 # ── 第 8 步：渲染 feishu_sync ──────────────────────────
 echo ""
-echo "✈️  [8/8] 渲染 feishu_sync（飞书消息同步守护进程）..."
+echo "✈️  [8/8] 渲染 feishu_ui（飞书消息同步守护进程）..."
 python3 "$CORE_DIR/feishu/sync/render.py"
 echo ""
 
@@ -121,8 +121,8 @@ echo "💻 terminal 使用:"
 echo "   cd $WORKER_WS/user_tools/terminal/"
 echo "   ./run_terminal.sh"
 echo ""
-echo "✈️  feishu_sync 使用:"
+echo "✈️  feishu_ui 使用:"
 echo "   cd $WORKER_WS/user_tools/feishu/"
-echo "   启动: ./run_feishu.sh"
+echo "   启动: ./run_feishu_ui.sh"
 echo "   停止: Ctrl+C"
 

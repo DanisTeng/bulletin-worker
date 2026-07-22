@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-feishu_sync — Bulletin Board → 飞书 消息同步守护进程
+feishu_ui — Bulletin Board → 飞书 消息同步守护进程
 
 架构：
   1. 定时（500ms）检查 board index.json 的 last_index
@@ -67,14 +67,14 @@ _p = print
 
 POLL_INTERVAL = 0.5        # 检查间隔（秒）
 MAX_LEGACY_DIFF = 30       # 最大合法 index 差异
-RUNNER_NAME = "feishu-sync"
+RUNNER_NAME = "feishu-ui"
 
 # ── 命令行 ───────────────────────────────────────────────────────
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="feishu_sync — Bulletin Board → 飞书 消息同步",
+        description="feishu_ui — Bulletin Board → 飞书 消息同步",
     )
     p.add_argument("--board-dir", required=True, help="留言板目录（含 index.json）")
     p.add_argument("--tools-dir", required=True, help="tools 目录（含 bb-get）")
