@@ -110,6 +110,7 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
     timeout = cron.get("timeout_seconds", 600)
     enable_status_check = cron.get("enable_status_check", True)
     skip_if_idle = cron.get("skip_if_idle", True)
+    worker_name = config.get("worker_name", "James")
 
     # 使用相对路径（wrapper cd 到 daemon 目录后）
     args = (
@@ -117,6 +118,7 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
         f'--interval {interval} '
         f'--timeout {timeout} '
         f'--output-dir ./cron_log'
+        f' --worker-name "{worker_name}"'
     )
 
     if enable_status_check:
@@ -163,6 +165,83 @@ echo "✅ 停止标记已创建，锁已清理，cron_daemon 将在当前轮次�
 
 
 # ── 部署 ────────────────────────────────────────────────────────
+
+
+def _render_clean_sh(config: dict, dst_dir: str) -> str:
+    """
+    生成 clean_cron_daemon.sh——杀残留进程 + 删锁/状态文件。
+    同时清理 sessions.json 中该 worker 前缀的残留 session。
+    注意：直接操作 sessions.json（不在终端输出的 cron_daemon 进程中运行）。
+    """
+    agent_id = config.get("agent_id", "main")
+    worker_name = config.get("worker_name", "James")
+    sessions_json = os.path.expanduser(
+        f"~/.openclaw/agents/{agent_id}/sessions/sessions.json"
+    )
+
+    script = f'''#!/bin/bash
+# clean_cron_daemon.sh — 由 core/cron_daemon/render.py 自动生成
+# 1. 杀残留 cron_daemon 进程
+# 2. 删 .lock / .stop / .status.json 文件
+# 3. 清理 sessions.json 中 {worker_name} 前缀的残留 session
+set -euo pipefail
+cd "$(dirname "$0")"
+
+DAEMON_DIR="$(dirname "$0")"
+echo "=== 清理 cron_daemon 残留 ==="
+
+# 1. 杀进程
+PIDS=$(pgrep -f "cron_daemon.*{worker_name}" 2>/dev/null || true)
+if [ -n "$PIDS" ]; then
+    echo "  杀死残留进程: $PIDS"
+    kill $PIDS 2>/dev/null || true
+    sleep 1
+    # 再次检查并强杀
+    PIDS=$(pgrep -f "cron_daemon.*{worker_name}" 2>/dev/null || true)
+    if [ -n "$PIDS" ]; then
+        kill -9 $PIDS 2>/dev/null || true
+        echo "  强杀: $PIDS"
+    fi
+else
+    echo "  无残留进程"
+fi
+
+# 2. 删标记文件
+rm -f "$DAEMON_DIR/.cron_daemon.lock"
+rm -f "$DAEMON_DIR/.cron_daemon.stop"
+rm -f "$DAEMON_DIR/.cron_daemon.status.json"
+echo "  标记文件已清理"
+
+# 3. 清理 sessions.json 中 {worker_name} 前缀的残留
+if [ -f "{sessions_json}" ]; then
+    TMP=\$(mktemp)
+    python3 -c "
+import json
+with open('{sessions_json}') as f:
+    data = json.load(f)
+keys = [k for k in data if k.startswith('agent:{agent_id}:explicit:{worker_name}-')]
+for k in keys:
+    del data[k]
+with open('{sessions_json}', 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+if keys:
+    print(f'清理了 {{len(keys)}} 个 {worker_name} session 残留')
+else:
+    print('无 {worker_name} session 残留')
+" 2>&1 || echo "  sessions.json 清理失败（可能格式不支持）"
+    rm -f "$TMP"
+else
+    echo "  sessions.json 不存在，跳过"
+fi
+
+echo "=== 清理完成 ==="
+'''
+
+    sh_path = os.path.join(dst_dir, "clean_cron_daemon.sh")
+    with open(sh_path, "w") as f:
+        f.write(script)
+    _make_executable(sh_path)
+    return sh_path
 
 
 def deploy_cron_daemon(config: dict) -> str:
@@ -217,6 +296,10 @@ def deploy_cron_daemon(config: dict) -> str:
     # 5. 生成 stop_cron_daemon.sh
     stop_sh = _render_stop_sh(dst_dir)
     print(f"   ✅ {stop_sh}")
+
+    # 6. 生成 clean_cron_daemon.sh（杀残留进程 + 清理残留 session）
+    clean_sh = _render_clean_sh(config, dst_dir)
+    print(f"   ✅ {clean_sh}")
 
     # 清理构建中间产物
     _cleanup_build(BUILD_DIR)
