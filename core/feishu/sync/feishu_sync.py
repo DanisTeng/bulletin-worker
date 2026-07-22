@@ -276,8 +276,32 @@ def main_loop(args: argparse.Namespace):
         if diff == 0:
             continue
 
-        # diff 非法
-        if diff < 0 or diff > MAX_LEGACY_DIFF:
+        # diff 非法（逆转/清空）
+        if diff < 0:
+            _p(f"[{RUNNER_NAME}] ⚠ index 逆转: last_seen={last_seen}, now_last={now_last}（检测到清空操作）",
+                  file=sys.stderr)
+            # 发告警消息
+            alert = (f"🔄 检测到留言板 index 逆转（{last_seen} → {now_last}），可能有清空操作\n"
+                     f"将重新同步最近的消息...")
+            send_text_message(open_id, token, alert)
+            # 从 max(0, now_last - 10) 到 now_last 重发
+            start = max(0, now_last - 10)
+            _p(f"[{RUNNER_NAME}] 📨 重发 #{start + 1} ~ #{now_last}（最多 10 条）")
+            for i in range(start + 1, now_last + 1):
+                msg_text = _bb_get(tools_dir, i)
+                if msg_text is None:
+                    _p(f"[{RUNNER_NAME}] ⚠ 获取留言 #{i} 失败，跳过", file=sys.stderr)
+                    continue
+                clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
+                result = send_text_message(open_id, token, clean_text)
+                if result.get("code") != 0:
+                    _p(f"[{RUNNER_NAME}] ⚠ 发送留言 #{i} 失败", file=sys.stderr)
+                else:
+                    _p(f"[{RUNNER_NAME}]   ✅ #{i} 已同步")
+            last_seen = now_last
+            continue
+
+        if diff > MAX_LEGACY_DIFF:
             _p(f"[{RUNNER_NAME}] ⚠ index 跳变: last_seen={last_seen}, now_last={now_last}, diff={diff}（跳过本轮）",
                   file=sys.stderr)
             continue
