@@ -89,13 +89,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _read_index(board_dir: str) -> int | None:
-    """读取 index.json 中的 last_index。文件不存在或格式错误返回 None。"""
+    """读取 index.json 中的 last_index。
+
+    文件不存在时返回 0（空留言板），格式错误返回 None。
+    """
     path = os.path.join(board_dir, "index.json")
     try:
         with open(path) as f:
             data = json.load(f)
             return data.get("last_index")
-    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+    except FileNotFoundError:
+        return 0  # 空留言板，index 视为 0
+    except (json.JSONDecodeError, KeyError):
         return None
 
 
@@ -247,7 +252,7 @@ def main_loop(args: argparse.Namespace):
     # 4. 记录初始 index
     last_seen = _read_index(board_dir)
     if last_seen is None:
-        _p(f"[{RUNNER_NAME}] ❌ 无法读取 index.json（未初始化？先跑 setup）", file=sys.stderr)
+        _p(f"[{RUNNER_NAME}] ❌ index.json 格式异常，退出", file=sys.stderr)
         sys.exit(1)
     _p(f"[{RUNNER_NAME}] 📍 初始 last_index = {last_seen}（不同步历史）")
 
