@@ -6,7 +6,7 @@ terminal — Bulletin Worker 交互式终端（打包 ELF）
        sh wrapper (run_terminal.sh) 填充所有路径参数。
 
 功能:
-  - 上半屏展示留言板内容（最新 100 条，20Hz 刷新，加速逻辑）
+  - 上半屏展示留言板内容（最新 100 条，10Hz 刷新，index 加速跳过无变化重绘）
   - 状态栏显示 bb-status（ACTIVE 绿色高亮）
   - 下半屏输入区，Ctrl+D 发留言（通过 bb-leader-post wrapper）
   - Ctrl+C 键退出
@@ -225,7 +225,7 @@ class Terminal(App):
         status_info = _render_status_indicator(_tools_dir)
         # 状态行 = 时钟 + status + cron（Textual 不支持 ANSI，状态用 emoji 代替）
         self.query_one("#header_bar", Horizontal).children[1].update(
-            f"{clock_str}{status_info}{daemon_info}"
+            f" {clock_str}{status_info}{daemon_info}"
         )
 
     def _refresh_board(self):
