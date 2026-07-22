@@ -102,6 +102,12 @@ echo "🖥️  [7/7] 渲染 terminal（交互式终端 TUI）..."
 python3 "$CORE_DIR/terminal/render.py"
 echo ""
 
+# ── 第 8 步：渲染 feishu_sync ──────────────────────────
+echo ""
+echo "✈️  [8/8] 渲染 feishu_sync（飞书消息同步守护进程）..."
+python3 "$CORE_DIR/user_tool/feishu_sync/render.py"
+echo ""
+
 echo "✅ 安装完成"
 echo "工作区: $WORKER_WS"
 echo "留言板: $BOARD_PATH"
@@ -114,3 +120,9 @@ echo ""
 echo "💻 terminal 使用:"
 echo "   cd $WORKER_WS/user_tools/terminal/"
 echo "   ./run_terminal.sh"
+echo ""
+echo "✈️  feishu_sync 使用:"
+echo "   cd $WORKER_WS/user_tools/feishu/"
+echo "   启动: ./run_feishu.sh"
+echo "   停止: Ctrl+C"
+
