@@ -58,17 +58,17 @@ rm -rf "$BOARD_PATH"
 mkdir -p "$WORKER_WS" "$BOARD_PATH"
 
 # ── 第 1 步：渲染工具（pyinstaller + sh wrapper）───────────
-echo "📦 [1/7] 打包 agent 工具..."
+echo "📦 [1/8] 打包 agent 工具..."
 python3 "$CORE_DIR/agent_tools/render.py"
 
 # ── 第 2 步：cron prompt ──────────────────────────
 echo ""
-echo "📜 [2/7] 渲染 cron prompt..."
+echo "📜 [2/8] 渲染 cron prompt..."
 python3 "$CORE_DIR/prompt/render.py"
 echo ""
 
 # ── 第 3 步：SKILL.md ────────────────────────────
-echo "📖 [3/7] 渲染 SKILL.md..."
+echo "📖 [3/8] 渲染 SKILL.md..."
 python3 "$CORE_DIR/skill/render.py"
 
 # 部署到工作区
@@ -81,25 +81,31 @@ echo "   → TOOLS_USAGE.md 已部署"
 
 # ── 第 4 步：任务计划工具 ────────────────────────────
 echo ""
-echo "📋 [4/7] 渲染任务计划工具..."
+echo "📋 [4/8] 渲染任务计划工具..."
 python3 "$CORE_DIR/task_plan/render.py"
 
 # ── 第 5 步：初始化状态与目录 ──────────────────────────
 echo ""
-echo "🎯 [5/7] 初始化状态..."
+echo "🎯 [5/8] 初始化状态..."
 python3 -c "import json; json.dump({'status': 'IDLE'}, open('$BOARD_PATH/status.json', 'w'))"
 echo "   → 状态已初始化为 IDLE"
 
 # ── 第 6 步：渲染 cron_daemon ──────────────────────────
 echo ""
-echo "🕒 [6/7] 渲染 cron_daemon（独立调度进程）..."
+echo "🕒 [6/8] 渲染 cron_daemon（独立调度进程）..."
 python3 "$CORE_DIR/cron_daemon/render.py"
 echo ""
 
 # ── 第 7 步：渲染 terminal ──────────────────────────
 echo ""
-echo "🖥️  [7/7] 渲染 terminal（交互式终端 TUI）..."
+echo "🖥️  [7/8] 渲染 terminal（交互式终端 TUI）..."
 python3 "$CORE_DIR/terminal/render.py"
+echo ""
+
+# ── 第 8 步：渲染 feishu_ui ──────────────────────────
+echo ""
+echo "✈️  [8/8] 渲染 feishu_ui（飞书消息同步守护进程）..."
+python3 "$CORE_DIR/feishu/sync/render.py"
 echo ""
 
 echo "✅ 安装完成"
@@ -114,3 +120,9 @@ echo ""
 echo "💻 terminal 使用:"
 echo "   cd $WORKER_WS/user_tools/terminal/"
 echo "   ./run_terminal.sh"
+echo ""
+echo "✈️  feishu_ui 使用:"
+echo "   cd $WORKER_WS/user_tools/feishu/"
+echo "   启动: ./run_feishu_ui.sh"
+echo "   停止: Ctrl+C"
+

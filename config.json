@@ -11,6 +11,12 @@
   "max_recent_lines": 20,
   "blocking_number": 3,
   "max_num_sub_task": 50,
+  "feishu": {
+    "app_id": "cli_a976a9157d389bda",
+    "app_secret": "",
+    "leader_user_name": "滕怀远",
+    "leader_open_id": ""
+  },
   "cron_daemon": {
     "interval_seconds": 10,
     "timeout_seconds": 900,

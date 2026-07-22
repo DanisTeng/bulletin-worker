@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""
+feishu_ui — Bulletin Board → 飞书 消息同步守护进程
+
+架构：
+  1. 定时（500ms）检查 board index.json 的 last_index
+  2. 计算 diff = now_last - last_seen；diff 在 [0, 30] 内视为合法
+  3. 对 diff > 0 的每条新留言，调 bb-get <index> 取内容
+  4. 通过飞书 API 发送给目标用户
+
+参数（通过 sh wrapper 填充）:
+  --board-dir       :   留言板目录（含 index.json）
+  --tools-dir       :   tools 目录（含 bb-get ELF / wrapper）
+  --feishu-app-id   :   飞书 App ID
+  --feishu-app-secret : 飞书 App Secret
+  --leader-name     :   被通知者在留言板上的 speaker 名
+  --leader-open-id  :   被通知者的飞书 open_id（非空时优先于联系人查询）
+
+行为：
+  - 首次启动：记下当前 last_index，不发送任何消息
+  - 定时检查：diff ∈ [0, 30] → 遍历 (last_seen, now_last]，逐条 bb-get 发到飞书
+  - diff 非法（负值或 >30）→ 输出告警日志，last_seen 原地不动
+  - 启动时检查 token 有效性，失败直接退出
+
+约定：
+  - 不发任何已有的旧留言（首次启动仅记录 index，不同步历史）
+  - 每轮同步完成更新 last_seen = now_last
+
+依赖：
+  - feishu_api.py 通过 PYTHONPATH 或同目录引用
+  - sys.path 在 pyinstaller 打包时需包含 core/feishu/
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+# ── 路径配置 ─────────────────────────────────────────────────────
+
+# pyinstaller --add-data 把 feishu_api.py 打包进 ELF，解压后在同级目录
+# 源码开发时从 core/feishu/ 引用
+# 注意: 只加 *存在* 的路径到 sys.path，否则 pyinstaller bootloader 的
+#       path finder hook 会因找不到目录而崩溃，且输出不可见。
+_THIS_DIR = Path(__file__).parent.resolve()
+_FEISHU_API_DIR = _THIS_DIR.parent  # core/feishu/（源码）或 pyinstaller 解压同目录
+for p in [str(_THIS_DIR), str(_FEISHU_API_DIR)]:
+    if p not in sys.path and os.path.isdir(p):
+        sys.path.insert(0, p)
+
+try:
+    from feishu_api import get_token, send_text_message
+except ImportError:
+    # 回退：作为独立模块 import（pyinstaller ELF 提取后可能 sys.path 不同）
+    import feishu_api as _fa
+    get_token = _fa.get_token
+    send_text_message = _fa.send_text_message
+
+# print with flush for pyinstaller ELF
+_p = print
+
+
+# ── 常量 ─────────────────────────────────────────────────────────
+
+POLL_INTERVAL = 0.5        # 检查间隔（秒）
+MAX_LEGACY_DIFF = 30       # 最大合法 index 差异
+RUNNER_NAME = "feishu-ui"
+
+# ── 命令行 ───────────────────────────────────────────────────────
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="feishu_ui — Bulletin Board → 飞书 消息同步",
+    )
+    p.add_argument("--board-dir", required=True, help="留言板目录（含 index.json）")
+    p.add_argument("--tools-dir", required=True, help="tools 目录（含 bb-get）")
+    p.add_argument("--feishu-app-id", required=True, help="飞书 App ID")
+    p.add_argument("--feishu-app-secret", required=True, help="飞书 App Secret")
+    p.add_argument("--leader-name", required=True, help="被通知者在留言板上的 speaker 名")
+    p.add_argument("--leader-open-id", default="", help="被通知者的飞书 open_id（可选，非空时免联系人查询）")
+    return p.parse_args(argv)
+
+
+# ── index 读写 ────────────────────────────────────────────────────
+
+
+def _read_index(board_dir: str) -> int | None:
+    """读取 index.json 中的 last_index。
+
+    文件不存在时返回 0（空留言板），格式错误返回 None。
+    """
+    path = os.path.join(board_dir, "index.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+            return data.get("last_index")
+    except FileNotFoundError:
+        return 0  # 空留言板，index 视为 0
+    except PermissionError:
+        _p(f"[{RUNNER_NAME}] ❌ 无权限读取 {path}", file=sys.stderr)
+        return None
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+# ── bb-get ─────────────────────────────────────────────────────────
+
+
+def _bb_get(tools_dir: str, index: int) -> str | None:
+    """调 bb-get <index>，返回留言内容（含时间戳和发言人）。失败返回 None。"""
+    get_path = os.path.join(tools_dir, "bb-get")
+    if not os.path.isfile(get_path):
+        _p(f"[{RUNNER_NAME}] ❌ 未找到 bb-get 在 {tools_dir}", file=sys.stderr)
+        return None
+
+    try:
+        result = subprocess.run(
+            [get_path, str(index)],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return None
+        text = result.stdout.strip()
+        return text if text else None
+    except (subprocess.TimeoutExpired, OSError) as e:
+        _p(f"[{RUNNER_NAME}] ⚠ bb-get({index}) 失败: {e}", file=sys.stderr)
+        return None
+
+
+# ── 飞书解析 ─────────────────────────────────────────────────────
+
+
+def _resolve_open_id(app_id: str, app_secret: str, leader_name: str) -> str | None:
+    """通过飞书联系人 API 按姓名查询 open_id。
+
+    使用 GET /contact/v3/users 遍历分页，返回第一个 name 匹配的 open_id。
+    失败返回 None。
+    """
+    token = get_token(app_id, app_secret)
+    if not token:
+        _p(f"[{RUNNER_NAME}] ❌ 获取飞书 token 失败", file=sys.stderr)
+        return None
+
+    # 尝试请求联系人列表
+    page_token = None
+    base_url = "https://open.feishu.cn/open-apis/contact/v3/users"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
+    while True:
+        params = f"page_size=50"
+        if page_token:
+            params += f"&page_token={page_token}"
+        url = f"{base_url}?{params}"
+
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            _p(f"[{RUNNER_NAME}] ❌ 联系人查询失败: {e}", file=sys.stderr)
+            return None
+
+        if data.get("code") != 0:
+            _p(f"[{RUNNER_NAME}] ❌ 联系人 API 错误: code={data.get('code')} msg={data.get('msg', '')}",
+                  file=sys.stderr)
+            return None
+
+        items = data.get("data", {}).get("items", [])
+        for user in items:
+            name = user.get("name", "")
+            if name == leader_name:
+                return user.get("open_id")
+
+        has_more = data.get("data", {}).get("has_more", False)
+        if not has_more:
+            break
+        page_token = data.get("data", {}).get("page_token")
+
+    return None
+
+
+# ── 主循环 ────────────────────────────────────────────────────────
+
+
+def main_loop(args: argparse.Namespace):
+    board_dir = args.board_dir
+    tools_dir = args.tools_dir
+    app_id = args.feishu_app_id
+    app_secret = args.feishu_app_secret
+    leader_name = args.leader_name
+    leader_open_id = args.leader_open_id
+
+    # ── 启动校验 ───────────────────────────────────────────────
+    _p(f"[{RUNNER_NAME}] 🚀 启动 Bulletin → Feishu 同步守护进程")
+
+    # 1. 检查 board 目录存在
+    if not os.path.isdir(board_dir):
+        _p(f"[{RUNNER_NAME}] ❌ board_dir 不存在: {board_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # 2. 获取飞书 token（验证凭证有效性）
+    token = get_token(app_id, app_secret)
+    if not token:
+        _p(f"[{RUNNER_NAME}] ❌ 飞书 token 获取失败（app_id/app_secret 无效）", file=sys.stderr)
+        sys.exit(1)
+    _p(f"[{RUNNER_NAME}] ✅ 飞书 token 获取成功")
+
+    # 3. 确认目标 open_id
+    if leader_open_id:
+        open_id = leader_open_id
+        _p(f"[{RUNNER_NAME}] ✅ 使用配置中的 open_id: {open_id[:12]}...")
+    else:
+        _p(f"[{RUNNER_NAME}] 🔍 查询联系人 \"{leader_name}\" 的 open_id...")
+        open_id = _resolve_open_id(app_id, app_secret, leader_name)
+        if not open_id:
+            _p(f"[{RUNNER_NAME}] ❌ 未找到 \"{leader_name}\"，请检查配置或联系人在当前租户下",
+                  file=sys.stderr)
+            sys.exit(1)
+        _p(f"[{RUNNER_NAME}] ✅ 找到 {leader_name}: open_id={open_id}")
+
+    # 4. 记录初始 index
+    last_seen = _read_index(board_dir)
+    if last_seen is None:
+        _p(f"[{RUNNER_NAME}] ❌ index.json 格式异常，退出", file=sys.stderr)
+        sys.exit(1)
+    _p(f"[{RUNNER_NAME}] 📍 初始 last_index = {last_seen}（不同步历史）")
+
+    # 5. 发一条启动通知
+    greet = f"🟢 {RUNNER_NAME} — 同步守护进程已启动\n   留言板: {board_dir}\n   通知到: {leader_name} ({open_id[:12]}...)"
+    send_text_message(open_id, token, greet)
+    _p(f"[{RUNNER_NAME}] ✅ 已发送启动通知到飞书")
+
+    # ── 循环 ─────────────────────────────────────────────────
+    _p(f"[{RUNNER_NAME}] 🔄 开始轮询（{POLL_INTERVAL}s 间隔）...")
+    while True:
+        time.sleep(POLL_INTERVAL)
+
+        now_last = _read_index(board_dir)
+        if now_last is None:
+            continue
+
+        diff = now_last - last_seen
+
+        # 无变化
+        if diff == 0:
+            continue
+
+        # diff 逆转（清空）
+        if diff < 0:
+            alert = (f"🔄 检测到留言板 index 逆转（{last_seen} → {now_last}），可能有清空操作\n"
+                     f"将重新同步最近的消息...")
+            send_text_message(open_id, token, alert)
+            # 从 max(0, now_last - 10) 到 now_last 重发
+            start = max(0, now_last - 10)
+            for i in range(start + 1, now_last + 1):
+                msg_text = _bb_get(tools_dir, i)
+                if msg_text is None:
+                    continue
+                clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
+                send_text_message(open_id, token, clean_text)
+            last_seen = now_last
+            continue
+
+        # diff 正向跳变（跳过）
+        if diff > MAX_LEGACY_DIFF:
+            last_seen = now_last
+            continue
+
+        # diff 合法：逐条同步
+        for i in range(last_seen + 1, now_last + 1):
+            msg_text = _bb_get(tools_dir, i)
+            if msg_text is None:
+                continue
+            clean_text = "\n".join(line.strip() for line in msg_text.split("\n"))
+            result = send_text_message(open_id, token, clean_text)
+            if result.get("code") != 0:
+                # token 可能过期（飞书默认 2h），刷新重试一次
+                new_token = get_token(app_id, app_secret)
+                if new_token:
+                    token = new_token
+                    send_text_message(open_id, token, clean_text)
+        # 更新 last_seen
+        last_seen = now_last
+
+
+# ── 入口 ──────────────────────────────────────────────────────────
+
+
+def main():
+    args = parse_args()
+    try:
+        main_loop(args)
+    except KeyboardInterrupt:
+        _p(f"\n[{RUNNER_NAME}] 👋 收到 Ctrl+C，退出")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
