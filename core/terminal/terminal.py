@@ -202,6 +202,7 @@ class Terminal(App):
     def on_mount(self):
         self._need_scroll_bottom = False
         self._tick_index = 0
+        self._displayed_index: int | None = None  # 已展示到 UI 的 board index
 
         # 启动 RealtimeBoardManager（后台异步刷新 board）
         self._board_mgr: RealtimeBoardManager | None = None
@@ -265,10 +266,16 @@ class Terminal(App):
     def _update_board_display(self):
         """从 RealtimeBoardManager 取最新内容更新展示框。
 
+        index 没变就不重绘，避免反复 Text() + escape() 开销。
         不执行任何 subprocess，不阻塞 event loop。
         """
         if self._board_mgr is None:
             self._need_scroll_bottom = False
+            return
+
+        cur_idx = self._board_mgr.last_board_index
+        if cur_idx is not None and cur_idx == self._displayed_index:
+            # index 未变，跳过重绘
             return
 
         raw = self._board_mgr.last_board_text
@@ -283,6 +290,7 @@ class Terminal(App):
             return
 
         self.query_one("#msg_content", Static).update(Text(escape(raw)))
+        self._displayed_index = cur_idx
 
         # Ctrl+D 发帖后的自动滚底
         if self._need_scroll_bottom:
