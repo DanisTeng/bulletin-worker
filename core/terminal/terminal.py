@@ -6,23 +6,26 @@ terminal — Bulletin Worker 交互式终端（打包 ELF）
        sh wrapper (run_terminal.sh) 填充所有路径参数。
 
 功能:
-  - 上半屏展示留言板内容（最新 100 条，10Hz 刷新，index 加速跳过无变化重绘）
+
+  - 上半屏展示留言板内容（通过 RealtimeBoardManager 异步刷新，0.5 秒一次）
   - 状态栏显示 bb-status（ACTIVE 绿色高亮）
   - 下半屏输入区，Ctrl+D 发留言（通过 bb-leader-post wrapper）
   - Ctrl+C 键退出
   - /exit 命令退出
   - 状态栏显示时钟 + cron daemon 状态
 
-注意: 所有留言板操作通过 shell wrapper 脚本（bb-leader-post / bb-recent / bb-get-status）
-      执行，确保单点维护 —— 这些脚本由 core/agent_tools/render.py 统一部署。
+注意: 
+  - 留言板高频刷新（bb-index / bb-recent）由 RealtimeBoardManager 在后台协程中处理，
+    不阻塞输入事件循环。
+  - 其他操作（post / clear / get-status）仍用同步 _exec_wrapper，因为它们
+    是低频操作，不值得异步化。
 """
 
 import argparse
-import hashlib
 import json
 import os
 import signal
-import subprocess  # noqa: E402 — 唯一的外部操作方式
+import subprocess  # noqa: E402 — 只在低频操作中使用
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -33,10 +36,12 @@ from textual.widgets import Footer, Label, Static, TextArea
 from rich.text import Text
 from rich.markup import escape
 
+from core.terminal.realtime_board import RealtimeBoardManager
+
 # ── 全局配置 ────────────────────────────────────────────────────
 
-TICK_INTERVAL = 1 / 60  # 60Hz
-TICK_PER_REFRESH = 6  
+TICK_INTERVAL = 1 / 60  # 60Hz（纯 UI 刷新，不碰 IO）
+TICK_PER_REFRESH = 6
 
 _tz_offset: int = 8
 _cron_workdir: str | None = None
@@ -45,7 +50,6 @@ _tools_dir: str | None = None
 
 # 状态缓存
 _last_status: str | None = None
-_last_board_index: int | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -78,10 +82,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _exec_wrapper(script_name: str, *args: str) -> str | None:
-    """执行一个 tools/ 目录下的 shell wrapper 脚本，返回 stdout（去掉尾部换行）。
+    """同步执行一个 tools/ 目录下的 shell wrapper 脚本（低频操作：post / clear / status）。
 
-    通过 subprocess 而非 os.system，避免 shell 注入问题。
-    失败时返回 None（静默）。
+    高频刷新（bb-index / bb-recent）走 RealtimeBoardManager 的异步路径。
+    此函数仅用于低频操作，同步调用无感知影响。
     """
     if not _tools_dir:
         return None
@@ -198,8 +202,20 @@ class Terminal(App):
     def on_mount(self):
         self._need_scroll_bottom = False
         self._tick_index = 0
+
+        # 启动 RealtimeBoardManager（后台异步刷新 board）
+        self._board_mgr: RealtimeBoardManager | None = None
+        if _tools_dir:
+            self._board_mgr = RealtimeBoardManager(
+                tools_dir=_tools_dir, interval=1.0, recent_cnt=100
+            )
+            self._board_mgr.start()
+
+        # 用 set_interval 注册一个纯 UI 帧回调（不再塞 IO）
         self.set_interval(TICK_INTERVAL, self.tick)
+
         self.query_one("#input", TextArea).focus()
+        self._update_board_display()
         self._update_header()
 
     def on_key(self, event):
@@ -210,12 +226,29 @@ class Terminal(App):
         elif event.key == "ctrl+c":
             self.exit()
 
+    # ── 生命周期 ──────────────────────────────────────────────────
+
+    def on_unmount(self):
+        """App 卸载时停止后台 board 刷新。"""
+        if self._board_mgr is not None:
+            self._board_mgr.stop()
+            self._board_mgr = None
+
+    # ── tick 回调 ─────────────────────────────────────────────────
+
     def tick(self):
-        self._tick_index = self._tick_index + 1
+        """纯 UI tick：每 60Hz 触发一次。
+
+        不再直接读取 subprocess——board 内容由 RealtimeBoardManager 异步维护。
+        tick 只负责将已准备好的数据显示到 UI 上。
+        """
+        self._tick_index += 1
         if self._tick_index >= TICK_PER_REFRESH:
             self._tick_index = 0
             self._update_header()
-            self._refresh_board()
+            self._update_board_display()
+
+    # ── 头部状态栏 ───────────────────────────────────────────────
 
     def _update_header(self):
         offset = timedelta(hours=_tz_offset)
@@ -223,44 +256,28 @@ class Terminal(App):
         clock_str = now.strftime("%H:%M:%S")
         daemon_info = _render_daemon_indicator(_cron_workdir)
         status_info = _render_status_indicator(_tools_dir)
-        # 状态行 = 时钟 + status + cron（Textual 不支持 ANSI，状态用 emoji 代替）
         self.query_one("#header_bar", Horizontal).children[1].update(
             f" {clock_str}{status_info}{daemon_info}"
         )
 
-    def _refresh_board(self):
-        """读取 recent 留言并更新展示框（20Hz），带加速逻辑。
+    # ── board 展示 ────────────────────────────────────────────────
 
-        加速：先查留言 index，与上次相同时跳过 bb-recent 调用，减少外部命令执行。
-        通过 bb-index / bb-recent wrapper 获取，而非内联。
+    def _update_board_display(self):
+        """从 RealtimeBoardManager 取最新内容更新展示框。
+
+        不执行任何 subprocess，不阻塞 event loop。
         """
-
-        if not _tools_dir:
+        if self._board_mgr is None:
             self._need_scroll_bottom = False
             return
 
-        # 先查 index，没变则跳过后续刷新
-        global _last_board_index
-        idx_raw = _exec_wrapper("bb-index")
-        if idx_raw is not None:
-            try:
-                cur_idx = int(idx_raw.strip())
-            except (ValueError, TypeError):
-                cur_idx = None
-
-            if _last_board_index is not None and cur_idx == _last_board_index:
-                # 留言无变化，无需刷新展示框
-                return
-            _last_board_index = cur_idx
-
-        raw = _exec_wrapper("bb-recent", "100")
+        raw = self._board_mgr.last_board_text
         if raw is None:
+            # 尚未取到数据（首次启动时）
             return
 
         lines = raw.split("\n") if raw else []
-
-
-        if not lines or (len(lines) == 1 and lines[0] == ""): 
+        if not lines or (len(lines) == 1 and lines[0] == ""):
             self.query_one("#msg_content", Static).update("（暂无留言）")
             self._need_scroll_bottom = False
             return
@@ -271,6 +288,8 @@ class Terminal(App):
         if self._need_scroll_bottom:
             self.query_one("#msg_area", VerticalScroll).scroll_end(animate=False)
             self._need_scroll_bottom = False
+
+    # ── Ctrl+D 处理 ──────────────────────────────────────────────
 
     def _on_ctrl_d(self):
         """Ctrl+D 回调：调用 bb-leader-post 将输入内容作为领导留言发布。"""
@@ -288,9 +307,10 @@ class Terminal(App):
             textarea.text = ""
             if _tools_dir:
                 _exec_wrapper("bb-board-clear")
-            # 重置 index 缓存，确保下一 tick 重新拉取 board 内容
-            global _last_board_index
-            _last_board_index = None
+            # 重置 board 管理器的 index 缓存，下次刷新立即拉新内容
+            if self._board_mgr is not None:
+                self._board_mgr.reset_cache()
+                self._board_mgr.request_refresh()
             self._need_scroll_bottom = True
             return
 
@@ -301,18 +321,19 @@ class Terminal(App):
         # 清空输入区
         textarea.text = ""
 
-        # 标记需要滚动到底部 + 强制刷新展示
+        # 通知 board manager 立即刷新 + 自动滚底
+        if self._board_mgr is not None:
+            self._board_mgr.request_refresh()
         self._need_scroll_bottom = True
 
 
 def main(argv: list[str] | None = None):
-    global _tz_offset, _cron_workdir, _tools_dir, _last_status, _last_board_index
+    global _tz_offset, _cron_workdir, _tools_dir, _last_status
     args = parse_args(argv)
     _tz_offset = args.tz_offset
     _cron_workdir = args.cron_workdir
     _tools_dir = args.tools_dir
     _last_status = None
-    _last_board_index = None
 
     app = Terminal()
     signal.signal(signal.SIGINT, lambda s, f: app.exit())

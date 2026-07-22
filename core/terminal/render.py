@@ -54,13 +54,18 @@ def _make_executable(path: str):
 
 
 def build_onefile(py_path: str, work_dir: str) -> str:
-    """用 pyinstaller --onefile 打包单个 .py 脚本。返回输出的 ELF 路径。"""
+    """用 pyinstaller --onefile 打包单个 .py 脚本。返回输出的 ELF 路径。
+
+    terminal.py 依赖同目录下的 realtime_board.py，通过 --hidden-import
+    确保 PyInstaller 在打包时追踪到该模块。
+    """
     result = subprocess.run(
         [
             sys.executable,
             "-m",
             "PyInstaller",
             "--onefile",
+            "--hidden-import=core.terminal.realtime_board",
             "--distpath",
             work_dir,
             "--workpath",
