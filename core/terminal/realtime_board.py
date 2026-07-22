@@ -88,7 +88,7 @@ class RealtimeBoardManager:
                 time.sleep(0.05)
 
     def _do_refresh(self):
-        # 查 index
+        # 查 index，判断是否要刷新
         idx = self._exec("bb-index")
         if idx is not None:
             try:
@@ -100,16 +100,20 @@ class RealtimeBoardManager:
                 cached = self._last_cached_index
 
             if cached is not None and cur_idx is not None and cur_idx == cached:
-                return  # 无变化
+                # 无变化，跳过拉内容
+                return
 
-            with self._lock:
-                self._last_cached_index = cur_idx
-                self.last_board_index = cur_idx
+            self._last_cached_index = cur_idx
+        else:
+            cur_idx = None
 
-        # 拉内容
+        # 拉内容（即便 index 为 None 也拉一次，首次启动时）
         raw = self._exec("bb-recent", str(self._recent_cnt))
-        if raw is not None:
-            with self._lock:
+
+        # 原子更新：index 和 text 同时写，避免前端读到 index 变了 text 还没跟上
+        with self._lock:
+            self.last_board_index = cur_idx
+            if raw is not None:
                 self.last_board_text = raw
 
     def _exec(self, script_name: str, *args: str) -> str | None:
