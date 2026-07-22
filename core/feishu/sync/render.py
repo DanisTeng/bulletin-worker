@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-core/user_tool/feishu_sync/render.py — 渲染 feishu_sync 到工作区
+core/feishu/sync/render.py — 渲染 feishu_sync 到工作区
 
 1. pyinstaller --onefile 把 feishu_sync.py 打成独立 ELF
 2. 生成 run_feishu.sh wrapper（从 config.json 填充所有 -- 参数）
@@ -10,9 +10,9 @@ core/user_tool/feishu_sync/render.py — 渲染 feishu_sync 到工作区
 config.json 新增字段:
   "feishu": {
     "app_id": "cli_xxx",
-    "app_secret": "xxx",
+    "app_secret": "",        # 或走环境变量 PUBLIC_FEISHU_APP_SECRET
     "leader_user_name": "滕怀远",
-    "leader_open_id": ""       // 可选，非空时免联系人查询
+    "leader_open_id": ""     # 可选，非空时免联系人查询
   }
 """
 
@@ -84,7 +84,7 @@ def _prepare_build_dir() -> tuple[str, str]:
     dst_py = os.path.join(src_dir, "feishu_sync.py")
     shutil.copy2(feishu_sync_src, dst_py)
 
-    feishu_api_src = os.path.join(ROOT_DIR, "user_tool", "feishu", "feishu_api.py")
+    feishu_api_src = os.path.join(ROOT_DIR, "core", "feishu", "feishu_api.py")
     feishu_api_dst = os.path.join(src_dir, "feishu_api.py")
     shutil.copy2(feishu_api_src, feishu_api_dst)
 
@@ -183,7 +183,7 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
         secret_line = '--feishu-app-secret "$PUBLIC_FEISHU_APP_SECRET"'
 
     script = f"""#!/bin/bash
-# run_feishu.sh — 由 core/user_tool/feishu_sync/render.py 自动生成
+# run_feishu.sh — 由 core/feishu/sync/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
 exec ./feishu_sync \

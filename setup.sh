@@ -105,7 +105,7 @@ echo ""
 # ── 第 8 步：渲染 feishu_sync ──────────────────────────
 echo ""
 echo "✈️  [8/8] 渲染 feishu_sync（飞书消息同步守护进程）..."
-python3 "$CORE_DIR/user_tool/feishu_sync/render.py"
+python3 "$CORE_DIR/feishu/sync/render.py"
 echo ""
 
 echo "✅ 安装完成"

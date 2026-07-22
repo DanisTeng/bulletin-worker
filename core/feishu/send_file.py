@@ -1,6 +1,6 @@
 """send_file — 通过飞书 bot 上传并发送文件。
 
-独立工具函数，供 Bulletin Worker 的常驻进程或 user_tool 入口调用。
+独立工具函数，供 Bulletin Worker 的常驻进程或 core/feishu/ 入口调用。
 
 流程:
   1. 检查文件是否存在、格式是否支持
@@ -13,15 +13,15 @@ env:
 
 用法（函数式）:
 
-    from user_tool.feishu.send_file import send_file
+    from core.feishu.send_file import send_file
 
     result = send_file(token, "ou_xxx", "/path/to/file.pdf")
     # result = {"code": 0, "file_name": "file.pdf", "file_key": "xxxx"}
 
 用法（main）:
 
-    python -m user_tool.feishu.send_file <open_id> <file_path>
-    python -m user_tool.feishu.send_file --list
+    python -m core.feishu.send_file <open_id> <file_path>
+    python -m core.feishu.send_file --list
 """
 
 import json
@@ -239,9 +239,9 @@ def main():
         return
 
     if len(sys.argv) < 3:
-        print(f"用法: python -m user_tool.feishu.send_file <open_id> <file_path>",
+        print(f"用法: python -m core.feishu.send_file <open_id> <file_path>",
               file=sys.stderr)
-        print(f"       python -m user_tool.feishu.send_file --list",
+        print(f"       python -m core.feishu.send_file --list",
               file=sys.stderr)
         sys.exit(1)
 

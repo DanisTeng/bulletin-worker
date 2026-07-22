@@ -12,7 +12,7 @@ feishu — 飞书通信工具模块，用于 Bulletin Worker 常驻进程。
 
 用法（receiver 自动管理 token，其他工具传入 token）:
 
-    from user_tool.feishu.receiver import FeishuReceiver
+    from core.feishu.receiver import FeishuReceiver
 
     recv = FeishuReceiver(app_id, app_secret)
     recv.start()
@@ -21,7 +21,7 @@ feishu — 飞书通信工具模块，用于 Bulletin Worker 常驻进程。
     recv.stop()
 
     # 发送
-    from user_tool.feishu import send_text, send_file
+    from core.feishu import send_text, send_file
     send_text(token, "ou_xxx", "hello")
     send_file(token, "ou_xxx", "/path/to/file.pdf")
 """

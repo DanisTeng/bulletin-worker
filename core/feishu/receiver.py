@@ -17,7 +17,7 @@ env:
 
 用法:
 
-    from user_tool.feishu.receiver import FeishuReceiver
+    from core.feishu.receiver import FeishuReceiver
 
     recv = FeishuReceiver(app_id, app_secret)
     recv.start()

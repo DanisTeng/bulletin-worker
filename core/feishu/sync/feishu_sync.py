@@ -28,7 +28,7 @@ feishu_sync — Bulletin Board → 飞书 消息同步守护进程
 
 依赖：
   - feishu_api.py 通过 PYTHONPATH 或同目录引用
-  - sys.path 在 pyinstaller 打包时需包含 user_tool/feishu/
+  - sys.path 在 pyinstaller 打包时需包含 core/feishu/
 """
 
 import argparse
@@ -42,14 +42,12 @@ from pathlib import Path
 # ── 路径配置 ─────────────────────────────────────────────────────
 
 # pyinstaller --add-data 把 feishu_api.py 打包进 ELF，解压后在同级目录
-# 源码开发时从 ../feishu/ 引用
+# 源码开发时从 core/feishu/ 引用
 # 注意: 只加 *存在* 的路径到 sys.path，否则 pyinstaller bootloader 的
 #       path finder hook 会因找不到目录而崩溃，且输出不可见。
 _THIS_DIR = Path(__file__).parent.resolve()
-_FEISHU_API_DIR = _THIS_DIR / ".." / ".." / ".." / "user_tool" / "feishu"
-_FEISHU_API_DIR2 = _THIS_DIR.parent / "feishu"
-
-for p in [str(_THIS_DIR), str(_FEISHU_API_DIR.resolve()), str(_FEISHU_API_DIR2.resolve())]:
+_FEISHU_API_DIR = _THIS_DIR.parent  # core/feishu/（源码）或 pyinstaller 解压同目录
+for p in [str(_THIS_DIR), str(_FEISHU_API_DIR)]:
     if p not in sys.path and os.path.isdir(p):
         sys.path.insert(0, p)
 
