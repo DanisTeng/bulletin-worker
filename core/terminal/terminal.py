@@ -275,12 +275,16 @@ class Terminal(App):
 
         cur_idx = self._board_mgr.last_board_index
         if cur_idx is not None and cur_idx == self._displayed_index:
-            # index 未变，跳过重绘
+            # index 未变，无需更新 UI
             return
+
+        # index 变了：无条件同步 _displayed_index，这样后续 tick
+        # 即使 raw 还没到或为空，也不会反复进入此分支。
+        self._displayed_index = cur_idx
 
         raw = self._board_mgr.last_board_text
         if raw is None:
-            # 尚未取到数据（首次启动时）
+            # 后台协程尚未取到数据（首次启动时），跳过
             return
 
         lines = raw.split("\n") if raw else []
@@ -290,7 +294,6 @@ class Terminal(App):
             return
 
         self.query_one("#msg_content", Static).update(Text(escape(raw)))
-        self._displayed_index = cur_idx
 
         # Ctrl+D 发帖后的自动滚底
         if self._need_scroll_bottom:
