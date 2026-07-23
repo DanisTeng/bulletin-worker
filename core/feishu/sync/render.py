@@ -111,7 +111,6 @@ def build_onefile(py_path: str, work_dir: str) -> str:
     py_dir = os.path.dirname(py_path)
     feishu_api_path = os.path.join(py_dir, "feishu_api.py")
     receiver_path = os.path.join(py_dir, "receiver.py")
-    add_data_spec = f"{feishu_api_path}:.;{receiver_path}:."
 
     result = subprocess.run(
         [
@@ -122,7 +121,9 @@ def build_onefile(py_path: str, work_dir: str) -> str:
             "--name",
             "feishu_ui",
             "--add-data",
-            add_data_spec,
+            f"{feishu_api_path}:.",
+            "--add-data",
+            f"{receiver_path}:.",
             "--distpath",
             work_dir,
             "--workpath",
