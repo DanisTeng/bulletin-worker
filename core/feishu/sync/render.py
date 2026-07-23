@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-core/feishu/sync/render.py — 渲染 feishu_sync 到工作区
+core/feishu/sync/render.py — 渲染 feishu_ui 到工作区
 
-1. pyinstaller --onefile 把 feishu_sync.py 打成独立 ELF
+1. pyinstaller --onefile 把 feishu_ui.py 打成独立 ELF
 2. 生成 run_feishu.sh wrapper（从 config.json 填充所有 -- 参数）
 
 输出目录: $worker_workspace/user_tools/feishu/，完全自包含
 
-config.json 新增字段:
+config.json 字段:
   "feishu": {
     "app_id": "cli_xxx",
     "app_secret": "",        # 或走环境变量 PUBLIC_FEISHU_APP_SECRET
@@ -26,7 +26,7 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(SCRIPT_DIR)))
 CONFIG_PATH = os.path.join(ROOT_DIR, "config.json")
-BUILD_DIR = os.path.join(ROOT_DIR, "tmp", "pyi-build-feishu-sync")
+BUILD_DIR = os.path.join(ROOT_DIR, "tmp", "pyi-build-feishu-ui")
 
 
 def load_config(path: str) -> dict:
@@ -71,18 +71,18 @@ def _make_executable(path: str):
 def _prepare_build_dir() -> tuple[str, str]:
     """准备打包用的临时目录。
 
-    1. 复制 feishu_sync.py 到临时目录
+    1. 复制 feishu_ui.py 到临时目录
     2. 复制 feishu_api.py 到临时目录（通过 --add-data 打包进 ELF）
 
     Returns:
-        (src_dir, py_path): 临时源目录和 feishu_sync.py 路径
+        (src_dir, py_path): 临时源目录和 feishu_ui.py 路径
     """
-    src_dir = os.path.join(ROOT_DIR, "tmp", "pyi-src-feishu-sync")
+    src_dir = os.path.join(ROOT_DIR, "tmp", "pyi-src-feishu-ui")
     os.makedirs(src_dir, exist_ok=True)
 
-    feishu_sync_src = os.path.join(SCRIPT_DIR, "feishu_sync.py")
-    dst_py = os.path.join(src_dir, "feishu_sync.py")
-    shutil.copy2(feishu_sync_src, dst_py)
+    feishu_ui_src = os.path.join(SCRIPT_DIR, "feishu_ui.py")
+    dst_py = os.path.join(src_dir, "feishu_ui.py")
+    shutil.copy2(feishu_ui_src, dst_py)
 
     feishu_api_src = os.path.join(ROOT_DIR, "core", "feishu", "feishu_api.py")
     feishu_api_dst = os.path.join(src_dir, "feishu_api.py")
@@ -98,7 +98,7 @@ def _cleanup_prepared(src_dir: str):
 
 
 def build_onefile(py_path: str, work_dir: str) -> str:
-    """用 pyinstaller --onefile 打包 feishu_sync.py。
+    """用 pyinstaller --onefile 打包 feishu_ui.py。
 
     用 --add-data 把 feishu_api.py 作为数据文件打包进 ELF。
     这样 ELF 启动时 feishu_api.py 会解压到临时目录，import 可以找到。
@@ -186,9 +186,10 @@ def _render_run_sh(config: dict, dst_dir: str) -> str:
 # run_feishu.sh — 由 core/feishu/sync/render.py 自动生成
 set -euo pipefail
 cd "$(dirname "$0")"
-exec ./feishu_sync \
+exec ./feishu_ui \
     --board-dir "{board_dir}" \
     --tools-dir "{tools_dir}" \
+    --worker-workspace "{workspace}" \
     --feishu-app-id "{app_id}" \
     {secret_line} \
     --leader-name "{leader_name}" \
@@ -204,7 +205,7 @@ exec ./feishu_sync \
 # ── 部署 ────────────────────────────────────────────────────────
 
 
-def deploy_feishu_sync(config: dict) -> str:
+def deploy_feishu_ui(config: dict) -> str:
     workspace_dir = config["worker_workspace"]
     dst_dir = os.path.join(workspace_dir, "user_tools", "feishu")
 
@@ -216,20 +217,20 @@ def deploy_feishu_sync(config: dict) -> str:
     # 0. 准备临时源目录（feishu_api.py 复制到同级）
     src_dir, src_py = _prepare_build_dir()
 
-    # 1. pyinstaller 打包 feishu_sync.py → ELF
+    # 1. pyinstaller 打包 feishu_ui.py → ELF
     if not os.path.exists(src_py):
         print(f"❌ 未找到源文件: {src_py}", file=sys.stderr)
         _cleanup_prepared(src_dir)
         sys.exit(1)
 
-    print("🔨 pyinstaller 打包 feishu_sync...")
+    print("🔨 pyinstaller 打包 feishu_ui...")
     sys.stdout.flush()
     elf_path = build_onefile(src_py, BUILD_DIR)
     size = os.path.getsize(elf_path)
     size_str = f"{size / 1024 / 1024:.1f}MB" if size > 1024 * 1024 else f"{size / 1024:.0f}KB"
     print(f"   ✅ {size_str}")
 
-    dst_elf = os.path.join(dst_dir, "feishu_sync")
+    dst_elf = os.path.join(dst_dir, "feishu_ui")
     if os.path.exists(dst_elf):
         os.remove(dst_elf)
     os.rename(elf_path, dst_elf)
@@ -246,7 +247,7 @@ def deploy_feishu_sync(config: dict) -> str:
     # 清理构建中间产物
     _cleanup_build(BUILD_DIR)
 
-    print(f"\n📍 feishu_sync 已部署到: {dst_dir}")
+    print(f"\n📍 feishu_ui 已部署到: {dst_dir}")
     print(f"   启动: cd {dst_dir} && ./run_feishu.sh")
     print(f"   停止: Ctrl+C")
 
@@ -257,8 +258,8 @@ def main():
     config = load_config(CONFIG_PATH)
     _validate_config(config)
 
-    print("🔧 [feishu_sync] 渲染到工作区...")
-    deploy_feishu_sync(config)
+    print("🔧 [feishu_ui] 渲染到工作区...")
+    deploy_feishu_ui(config)
 
 
 if __name__ == "__main__":
