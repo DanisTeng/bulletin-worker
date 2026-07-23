@@ -73,6 +73,7 @@ def _prepare_build_dir() -> tuple[str, str]:
 
     1. 复制 feishu_ui.py 到临时目录
     2. 复制 feishu_api.py 到临时目录（通过 --add-data 打包进 ELF）
+    3. 复制 receiver.py 到临时目录（通过 --add-data 打包进 ELF）
 
     Returns:
         (src_dir, py_path): 临时源目录和 feishu_ui.py 路径
@@ -88,6 +89,10 @@ def _prepare_build_dir() -> tuple[str, str]:
     feishu_api_dst = os.path.join(src_dir, "feishu_api.py")
     shutil.copy2(feishu_api_src, feishu_api_dst)
 
+    receiver_src = os.path.join(ROOT_DIR, "core", "feishu", "receiver.py")
+    receiver_dst = os.path.join(src_dir, "receiver.py")
+    shutil.copy2(receiver_src, receiver_dst)
+
     return src_dir, dst_py
 
 
@@ -100,12 +105,13 @@ def _cleanup_prepared(src_dir: str):
 def build_onefile(py_path: str, work_dir: str) -> str:
     """用 pyinstaller --onefile 打包 feishu_ui.py 为 feishu_ui。
 
-    用 --add-data 把 feishu_api.py 作为数据文件打包进 ELF。
-    这样 ELF 启动时 feishu_api.py 会解压到临时目录，import 可以找到。
+    用 --add-data 把 feishu_api.py + receiver.py 作为数据文件打包进 ELF。
+    这样 ELF 启动时它们会解压到临时目录，import 可以找到。
     """
     py_dir = os.path.dirname(py_path)
     feishu_api_path = os.path.join(py_dir, "feishu_api.py")
-    add_data_spec = f"{feishu_api_path}:."
+    receiver_path = os.path.join(py_dir, "receiver.py")
+    add_data_spec = f"{feishu_api_path}:.;{receiver_path}:."
 
     result = subprocess.run(
         [
@@ -190,6 +196,7 @@ cd "$(dirname "$0")"
 exec ./feishu_ui \
     --board-dir "{board_dir}" \
     --tools-dir "{tools_dir}" \
+    --worker-workspace "{workspace}" \
     --feishu-app-id "{app_id}" \
     {secret_line} \
     --leader-name "{leader_name}" \
