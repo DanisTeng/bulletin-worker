@@ -81,6 +81,8 @@ _p = print
 POLL_INTERVAL = 0.5        # 检查间隔（秒）
 MAX_LEGACY_DIFF = 30       # 最大合法 index 差异
 RUNNER_NAME = "feishu-ui"
+
+# 新增常量：WS 接收器
 FEISHU_DOWNLOAD_SUBDIR = "feishu_download"  # 文件下载子目录名
 _FILE_DOWNLOAD_TIMEOUT = 60  # 下载文件超时（秒）
 _MSG_LOG_TRIM = 18         # 日志中 message_id 截断长度
@@ -118,7 +120,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--board-dir", required=True, help="留言板目录（含 index.json）")
     p.add_argument("--tools-dir", required=True, help="tools 目录（含 bb-get, bb-leader-post）")
-    p.add_argument("--worker-workspace", required=True, help="worker_workspace 路径")
+    p.add_argument("--worker-workspace", required=True, help="worker_workspace 路径（拼接 feishu_download/）")
     p.add_argument("--feishu-app-id", required=True, help="飞书 App ID")
     p.add_argument("--feishu-app-secret", required=True, help="飞书 App Secret")
     p.add_argument("--leader-name", required=True, help="被通知者在留言板上的 speaker 名")
@@ -194,61 +196,6 @@ def _bb_leader_post(tools_dir: str, text: str) -> bool:
     except (subprocess.TimeoutExpired, OSError) as e:
         _p(f"[{RUNNER_NAME}] ⚠ bb-leader-post 失败: {e}", file=sys.stderr)
         return False
-
-
-# ── 飞书解析 ─────────────────────────────────────────────────────
-
-
-def _resolve_open_id(app_id: str, app_secret: str, leader_name: str) -> str | None:
-    """通过飞书联系人 API 按姓名查询 open_id。
-
-    使用 GET /contact/v3/users 遍历分页，返回第一个 name 匹配的 open_id。
-    失败返回 None。
-    """
-    token = get_token(app_id, app_secret)
-    if not token:
-        _p(f"[{RUNNER_NAME}] ❌ 获取飞书 token 失败", file=sys.stderr)
-        return None
-
-    # 尝试请求联系人列表
-    page_token = None
-    base_url = "https://open.feishu.cn/open-apis/contact/v3/users"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json; charset=utf-8",
-    }
-
-    while True:
-        params = f"page_size=50"
-        if page_token:
-            params += f"&page_token={page_token}"
-        url = f"{base_url}?{params}"
-
-        req = urllib.request.Request(url, headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
-            _p(f"[{RUNNER_NAME}] ❌ 联系人查询失败: {e}", file=sys.stderr)
-            return None
-
-        if data.get("code") != 0:
-            _p(f"[{RUNNER_NAME}] ❌ 联系人 API 错误: code={data.get('code')} msg={data.get('msg', '')}",
-               file=sys.stderr)
-            return None
-
-        items = data.get("data", {}).get("items", [])
-        for user in items:
-            name = user.get("name", "")
-            if name == leader_name:
-                return user.get("open_id")
-
-        has_more = data.get("data", {}).get("has_more", False)
-        if not has_more:
-            break
-        page_token = data.get("data", {}).get("page_token")
-
-    return None
 
 
 # ── WS 接收器（新增） ────────────────────────────────────────────
@@ -365,13 +312,11 @@ class _FeishuWS:
         """处理 p2p 文件消息 → 下载或回复超限。"""
         raw = getattr(msg_obj, 'content', '')
         if not raw:
-            _p(f"[{self._ts()}] ⚠ 文件无 content, id={message_id[:_MSG_LOG_TRIM]}")
             return
 
         try:
             parsed = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
-            _p(f"[{self._ts()}] ⚠ 文件 content 解析失败, id={message_id[:_MSG_LOG_TRIM]}")
             return
         if not isinstance(parsed, dict):
             return
@@ -391,7 +336,6 @@ class _FeishuWS:
 
         token = self._token_mgr.get()
         if not token:
-            _p(f"[{self._ts()}] ⚠ 跳过 {file_name}: 无 token")
             return
 
         _p(f"[{self._ts()}] 📥 下载 {file_name} ({resource_type})")
@@ -415,6 +359,61 @@ class _FeishuWS:
                 if token2:
                     send_text_message(sender_id, token2,
                                       "文件太大了，请发送小于 100MB 的文件 🙏")
+
+
+# ── 飞书解析 ─────────────────────────────────────────────────────
+
+
+def _resolve_open_id(app_id: str, app_secret: str, leader_name: str) -> str | None:
+    """通过飞书联系人 API 按姓名查询 open_id。
+
+    使用 GET /contact/v3/users 遍历分页，返回第一个 name 匹配的 open_id。
+    失败返回 None。
+    """
+    token = get_token(app_id, app_secret)
+    if not token:
+        _p(f"[{RUNNER_NAME}] ❌ 获取飞书 token 失败", file=sys.stderr)
+        return None
+
+    # 尝试请求联系人列表
+    page_token = None
+    base_url = "https://open.feishu.cn/open-apis/contact/v3/users"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8",
+    }
+
+    while True:
+        params = f"page_size=50"
+        if page_token:
+            params += f"&page_token={page_token}"
+        url = f"{base_url}?{params}"
+
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError) as e:
+            _p(f"[{RUNNER_NAME}] ❌ 联系人查询失败: {e}", file=sys.stderr)
+            return None
+
+        if data.get("code") != 0:
+            _p(f"[{RUNNER_NAME}] ❌ 联系人 API 错误: code={data.get('code')} msg={data.get('msg', '')}",
+                  file=sys.stderr)
+            return None
+
+        items = data.get("data", {}).get("items", [])
+        for user in items:
+            name = user.get("name", "")
+            if name == leader_name:
+                return user.get("open_id")
+
+        has_more = data.get("data", {}).get("has_more", False)
+        if not has_more:
+            break
+        page_token = data.get("data", {}).get("page_token")
+
+    return None
 
 
 # ── 主循环 ────────────────────────────────────────────────────────
@@ -470,7 +469,7 @@ def main_loop(args: argparse.Namespace):
     os.makedirs(download_dir, exist_ok=True)
     _p(f"[{RUNNER_NAME}] 📁 文件下载目录: {download_dir}")
 
-    # ── 启动 WS 接收器（新增） ────────────────────────────────
+    # ── WS 接收器（新增） ────────────────────────────────────
     _p(f"[{RUNNER_NAME}] 🔄 启动飞书消息接收器...")
     ws = _FeishuWS(app_id, app_secret, download_dir, tools_dir)
     ws_thread = threading.Thread(target=ws.start, daemon=True)
@@ -479,12 +478,10 @@ def main_loop(args: argparse.Namespace):
     _p(f"[{RUNNER_NAME}] ✅ 飞书消息接收器已启动")
 
     # 6. 发一条启动通知
-    greet = (
-        f"🟢 {RUNNER_NAME} — 已启动\n"
-        f"   留言板: {board_dir}\n"
-        f"   通知到: {leader_name} ({open_id[:12]}...)\n"
-        f"   文件下载: {download_dir}"
-    )
+    greet = (f"🟢 {RUNNER_NAME} — 已启动\n"
+             f"   留言板: {board_dir}\n"
+             f"   通知到: {leader_name} ({open_id[:12]}...)\n"
+             f"   文件下载: {download_dir}")
     send_text_message(open_id, token, greet)
     _p(f"[{RUNNER_NAME}] ✅ 已发送启动通知到飞书")
 
