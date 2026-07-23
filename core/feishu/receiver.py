@@ -35,31 +35,16 @@ import copy
 import json
 import logging
 import os
-import sys
 import threading
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
-# 路径 fallback：当作为独立模块被 import（无 parent package）时
-# 通过绝对 import 兜底
-_THIS_RECV_DIR = Path(__file__).parent.resolve()
-if str(_THIS_RECV_DIR) not in sys.path:
-    sys.path.insert(0, str(_THIS_RECV_DIR))
-
-try:
-    from .feishu_api import (
-        get_token,
-        send_text_message,
-        download_resource,
-    )
-except ImportError:
-    from feishu_api import (
-        get_token,
-        send_text_message,
-        download_resource,
-    )
+from .feishu_api import (
+    get_token,
+    send_text_message,
+    download_resource,
+)
 
 logger = logging.getLogger("feishu-receiver")
 
@@ -190,7 +175,7 @@ class MessageStore:
 # ── Token 管理器 ────────────────────────────────────────────────────────
 
 
-class TokenManager:
+class _TokenManager:
     """自动刷新 tenant_access_token 的管理器。
 
     飞书 token 有效期 2 小时，缓存 1.5 小时后自动刷新。
@@ -222,10 +207,6 @@ class TokenManager:
             return self._token
 
 
-# 下划线别名兼容旧引用
-_TokenManager = TokenManager
-
-
 # ── FeishuReceiver ──────────────────────────────────────────────────────
 
 
@@ -250,7 +231,6 @@ class FeishuReceiver:
         on_message: Optional[callable] = None,
         file_storage_dir: str = "",
         log_file: str = "",
-        token_manager: Optional[TokenManager] = None,
     ):
         self._app_id = app_id
         self._app_secret = app_secret
@@ -260,10 +240,7 @@ class FeishuReceiver:
 
         self.store = MessageStore()
         self.name_resolver = NameResolver(app_id, app_secret)
-        if token_manager is not None:
-            self._token_mgr = token_manager
-        else:
-            self._token_mgr = TokenManager(app_id, app_secret)
+        self._token_mgr = _TokenManager(app_id, app_secret)
 
         self._ws_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
