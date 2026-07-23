@@ -65,12 +65,13 @@ for p in [str(_THIS_DIR), str(_FEISHU_API_DIR)]:
         sys.path.insert(0, p)
 
 try:
-    from feishu_api import get_token, send_text_message
+    from feishu_api import get_token, send_text_message, download_resource
 except ImportError:
     # 回退：作为独立模块 import（pyinstaller ELF 提取后可能 sys.path 不同）
     import feishu_api as _fa
     get_token = _fa.get_token
     send_text_message = _fa.send_text_message
+    download_resource = _fa.download_resource
 
 # print with flush for pyinstaller ELF
 _p = print
@@ -352,8 +353,7 @@ class _FeishuWS:
 
         _p(f"[{self._ts()}] 📥 下载 {file_name} ({resource_type})")
 
-        import feishu_api as _fa
-        r = _fa.download_resource(
+        r = download_resource(
             message_id, file_key, token,
             resource_type=resource_type,
             output_path=output,
