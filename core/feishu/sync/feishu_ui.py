@@ -75,6 +75,16 @@ except ImportError:
 # print with flush for pyinstaller ELF
 _p = print
 
+# WS 接收器依赖（顶层 import 确保 pyinstaller 能静态分析并打包）
+try:
+    import lark_oapi as _lark
+    from lark_oapi.api.im.v1 import P2ImMessageReceiveV1 as _P2ImMsgReceive
+    _HAS_LARK = True
+except ImportError:
+    _HAS_LARK = False
+    _lark = None
+    _P2ImMsgReceive = None
+
 
 # ── 常量 ─────────────────────────────────────────────────────────
 
@@ -220,9 +230,11 @@ class _FeishuWS:
 
     def start(self):
         """启动 WS 连接。"""
-        import lark_oapi as lark
-        from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+        if not _HAS_LARK:
+            _p(f"[{RUNNER_NAME}] ❌ lark-oapi 未安装，运行: pip install lark-oapi", file=sys.stderr)
+            return
 
+        lark = _lark
         os.makedirs(self._download_dir, exist_ok=True)
         handler = (
             lark.EventDispatcherHandler.builder("", "")
