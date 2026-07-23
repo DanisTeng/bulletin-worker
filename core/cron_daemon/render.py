@@ -269,7 +269,7 @@ def deploy_cron_daemon(config: dict) -> str:
     dst_elf = os.path.join(dst_dir, "cron_daemon")
     if os.path.exists(dst_elf):
         os.remove(dst_elf)
-    os.rename(elf_path, dst_elf)
+    shutil.move(elf_path, dst_elf)
     _make_executable(dst_elf)
     print(f"   → {dst_elf}")
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-cron_daemon — OpenClaw cron 替代品（v4.5 专用）
+cron_daemon — OpenClaw cron 替代品
 
-独立进程，代替有 bug 的 OpenClaw 原生 cron。
+独立进程，代替有 bug 的 OpenClaw 原生 cron（原为 v4.5 设计）。
 特性:
   - 每隔 X 秒跑一次，任务不重叠
-  - 每次创建隔离 session，跑完即焚（刷掉 sessions.json + transcript）
+  - 每次创建隔离 session，跑完通过 Gateway RPC 安全清理
   - 超时自行管理
   - agent 回复存日志文件
   - gateway 崩了就跟着崩（不自动重启）
@@ -112,18 +112,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def _sessions_json_for(agent_id: str) -> str:
-    """v4.5 的 sessions.json 路径，按 agent id 推导。"""
-    return os.path.expanduser(
-        f"~/.openclaw/agents/{agent_id}/sessions/sessions.json"
-    )
-
-
-def _sessions_dir_for(agent_id: str) -> str:
-    """v4.5 的 sessions 目录路径。"""
-    return os.path.expanduser(
-        f"~/.openclaw/agents/{agent_id}/sessions"
-    )
+def _session_key_for(agent_id: str, session_id: str) -> str:
+    """openclaw agent --session-id 对应的 session key。"""
+    return f"agent:{agent_id}:explicit:{session_id}"
 
 
 def _session_key_prefix_for(agent_id: str, worker_name: str) -> str:
@@ -131,9 +122,41 @@ def _session_key_prefix_for(agent_id: str, worker_name: str) -> str:
     return f"agent:{agent_id}:explicit:{worker_name}-"
 
 
-def _actual_key_for(agent_id: str, session_id: str) -> str:
-    """openclaw agent --session-id 在 sessions.json 里实际存的 key。"""
-    return f"agent:{agent_id}:explicit:{session_id}"
+def _call_gateway(method: str, params: dict, timeout: int = 10) -> dict | None:
+    """调用 OpenClaw Gateway RPC，返回解析后的 JSON 或 None。
+    
+    调试：失败时打 stderr 日志方便远程定位。
+    """
+    cmd = [
+        _OPENCLAW_PATH, "gateway", "call", method,
+        "--params", json.dumps(params),
+    ]
+    try:
+        r = subprocess.run(
+            cmd,
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if r.returncode != 0:
+            print(f"[DEBUG cleanup] gateway call failed rc={r.returncode} stderr={r.stderr[-200:]}", file=sys.stderr)
+            return None
+        text = r.stdout.strip()
+        for prefix in ("{", "["):
+            pos = text.find(prefix)
+            if pos >= 0:
+                result = json.loads(text[pos:])
+                print(f"[DEBUG cleanup] {method} ok: {json.dumps(result, ensure_ascii=False, default=str)[:300]}", file=sys.stderr)
+                return result
+        print(f"[DEBUG cleanup] no JSON in stdout (len={len(r.stdout)}), key={params.get('key','?')}", file=sys.stderr)
+        return None
+    except subprocess.TimeoutExpired:
+        print(f"[DEBUG cleanup] {method} timeout after {timeout}s", file=sys.stderr)
+        return None
+    except json.JSONDecodeError as e:
+        print(f"[DEBUG cleanup] {method} JSON parse error: {e}", file=sys.stderr)
+        return None
+    except OSError as e:
+        print(f"[DEBUG cleanup] {method} OS error: {e}", file=sys.stderr)
+        return None
 
 
 def load_prompt(prompt_path: str) -> str:
@@ -176,105 +199,44 @@ def run_agent(message: str, session_id: str, timeout: int) -> tuple[bool, str]:
 
 def cleanse_session(session_id: str, agent_id: str) -> None:
     """
-    用完即焚 — 从 sessions.json 删掉对应条目并删除 transcript 文件。
+    用完即焚 — 通过 Gateway RPC sessions.delete 安全删除单条 session。
     静默失败（不打断主流程）。
     """
-    sessions_json = _sessions_json_for(agent_id)
-    actual_key = _actual_key_for(agent_id, session_id)
-
-    if not os.path.exists(sessions_json):
-        return
-
-    try:
-        with open(sessions_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        transcript_id = None
-        modified = False
-        if isinstance(data, dict):
-            if actual_key in data:
-                transcript_id = data[actual_key].get("id")
-                del data[actual_key]
-                modified = True
-        elif isinstance(data, list):
-            for s in data:
-                if s.get("key") == actual_key:
-                    transcript_id = s.get("id")
-                    break
-            before = len(data)
-            data = [s for s in data if s.get("key") != actual_key]
-            modified = len(data) < before
-
-        if modified:
-            with open(sessions_json, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            # 删除对应的 transcript 文件
-            if transcript_id:
-                transcript_path = os.path.join(
-                    _sessions_dir_for(agent_id), f"{transcript_id}.jsonl"
-                )
-                try:
-                    if os.path.exists(transcript_path):
-                        os.remove(transcript_path)
-                except OSError:
-                    pass
-    except Exception:
-        pass
+    key = _session_key_for(agent_id, session_id)
+    print(f"[DEBUG cleanup] cleansing session key={key}", file=sys.stderr)
+    result = _call_gateway("sessions.delete", {
+        "key": key,
+        "agentId": agent_id,
+    })
+    if result is None:
+        print(f"[DEBUG cleanup] ⚠️ sessions.delete returned None for key={key}", file=sys.stderr)
 
 
 def cleanse_all_by_prefix(agent_id: str, worker_name: str) -> int:
     """
-    启动时扫雷：清理 sessions.json 中所有以 {worker_name}- 为前缀的 session 条目。
-    同时删除对应的 transcript 文件。
+    启动时扫雷：通过 Gateway RPC 清理所有以 {worker_name}- 为前缀的 session。
     返回清理的条目数。
     """
-    sessions_json = _sessions_json_for(agent_id)
     prefix = _session_key_prefix_for(agent_id, worker_name)
-    sessions_dir = _sessions_dir_for(agent_id)
-
-    if not os.path.exists(sessions_json):
-        return 0
-
     removed = 0
     try:
-        with open(sessions_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        transcript_ids = []
-        if isinstance(data, dict):
-            keys_to_del = [k for k in data if k.startswith(prefix)]
-            for k in keys_to_del:
-                tid = data[k].get("id")
-                if tid:
-                    transcript_ids.append(tid)
-                del data[k]
-            removed = len(keys_to_del)
-        elif isinstance(data, list):
-            before = len(data)
-            for s in data:
-                if s.get("key", "").startswith(prefix):
-                    tid = s.get("id")
-                    if tid:
-                        transcript_ids.append(tid)
-            data = [s for s in data if not s.get("key", "").startswith(prefix)]
-            removed = before - len(data)
-
-        if removed > 0:
-            with open(sessions_json, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            # 删除对应的 transcript 文件
-            for tid in transcript_ids:
-                tpath = os.path.join(sessions_dir, f"{tid}.jsonl")
-                try:
-                    if os.path.exists(tpath):
-                        os.remove(tpath)
-                except OSError:
-                    pass
+        r = subprocess.run(
+            [_OPENCLAW_PATH, "sessions", "list", "--json", "--agent", agent_id],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            return 0
+        data = json.loads(r.stdout)
+        for s in data.get("sessions", []):
+            key = s.get("key", "")
+            if key.startswith(prefix):
+                _call_gateway("sessions.delete", {
+                    "key": key,
+                    "agentId": agent_id,
+                })
+                removed += 1
     except Exception:
         pass
-
     return removed
 
 
@@ -431,8 +393,8 @@ def main(argv: list[str] | None = None) -> None:
         f"  timeout:     {timeout_seconds}s\n"
         f"  worker:      {args.worker_name}\n"
         f"  log dir:     {args.output_dir}\n"
-        f"  sessions:    {_sessions_json_for(agent_id)}\n"
-        f"  openclaw 4.5 | agent: {agent_id}\n"
+        f"  gateway:     sessions.delete RPC\n"
+        f"  agent:       {agent_id}\n"
         f"  status cmd:  {status_cmd or '(none)'}{'' if args.no_skip_if_idle else ' | 前置检查开启'}\n"
     )
 
