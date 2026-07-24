@@ -413,6 +413,22 @@ def main(argv: list[str] | None = None) -> None:
         )
 
 
+def _call_bb_set_status(bb_status_script: str, value: str) -> bool:
+    """调用 bb-status set 写入状态值。成功返回 True。"""
+    try:
+        r = subprocess.run(
+            [str(bb_status_script), "set", "status", value],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode != 0:
+            print(f"[WARN] bb-status set 失败: {r.stderr.strip()}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"[WARN] bb-status set 异常: {e}", file=sys.stderr)
+        return False
+
+
 def _loop_body(
     args, status_cmd, status_path, stop_path,
     interval_seconds,
@@ -437,11 +453,15 @@ def _loop_body(
                 capture_output=True, text=True, timeout=10,
             )
             bb_status = r.stdout.strip()
-            if bb_status != "ACTIVE":
-                # IDLE/BUSY 直接跳过，不增加轮次、不输出
+            if bb_status == "IDLE":
+                # IDLE → 跳过本轮
                 _write_status(status_path, "STANDBY", round_num, "SKIP")
                 _interruptible_sleep(interval_seconds, status_path, stop_path)
                 return round_num  # 跳过本轮，轮次不变
+            if bb_status == "BUSY":
+                # BUSY → 上一轮异常退出，cron_daemon 直接修回 ACTIVE
+                print(f"[cron_daemon] 检测到 BUSY（上一轮异常退出），自动置为 ACTIVE")
+                _call_bb_set_status(str(status_cmd.resolve().parent / "bb-status"), "ACTIVE")
         except FileNotFoundError:
             print(f"[WARN] bb-status-cmd 不存在: {status_cmd}，放行执行", file=sys.stderr)
         except Exception as e:
